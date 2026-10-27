@@ -1,0 +1,9 @@
+{
+  "name": "treeblog-workspace",
+  "private": true,
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

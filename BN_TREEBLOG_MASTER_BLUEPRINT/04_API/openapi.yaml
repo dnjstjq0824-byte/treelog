@@ -1,0 +1,5575 @@
+openapi: 3.1.0
+info:
+  title: TreeBlog Global Independent Blog Platform API
+  version: 1.0.0
+  description: BN-TREEBLOG-GEMINI4-ARGON-MASTER-BLUEPRINT-001 전체 24개 API 그룹 106개 핵심 엔드포인트 OpenAPI 3.1.0 공식 명세서. 독립 구동 우선 및
+    향후 TreeScan 통합 인터페이스를 포함한다.
+  contact:
+    name: Booking Network Platform Architecture Team
+  license:
+    name: Proprietary - Booking Network
+servers:
+- url: https://api.treeblog.example.com
+  description: Production API Server (Configurable via env)
+- url: http://localhost:8080
+  description: Local Docker Compose Development Server
+tags:
+- name: Authentication
+  description: '[G01] 회원가입, 로그인, 토큰 갱신, 비밀번호 복구, OAuth/OIDC, MFA'
+- name: User
+  description: '[G02] 내 프로필 조회/수정, 환경설정, 세션 기기 관리, 동의 내역, 계정 탈퇴'
+- name: Blog Creation
+  description: '[G03] 블로그 개설, 핸들 중복/예약어 실시간 검증, 내 소속 블로그 목록'
+- name: Blog Management
+  description: '[G04] 블로그 정보/설정 변경, 팀 멤버 초대/권한 변경, 네비게이션, 소유권 이전, 블로그 폐쇄'
+- name: Post Editor
+  description: '[G05] 초안 생성, 듀얼 자동저장(Optimistic Lock), 리비전 목록/Diff 복원, 링크 OG 프리뷰, 마크다운 변환'
+- name: Post Publishing
+  description: '[G06] 즉시 발행, 예약 발행 등록/취소, 공개 범위 변경, 발행 취소, 휴지통 이동/복원/영구삭제, 공개 열람'
+- name: Media
+  description: '[G07] S3 Presigned 업로드 세션 발급/완료, 이미지 파생본/대체텍스트 관리, 외부 동영상 안전 임베드'
+- name: Category & Tags
+  description: '[G08] 2뎁스 카테고리 CRUD/순서변경, 시리즈(연재물) 관리, 태그 자동완성 및 인기 태그'
+- name: Follow & Subscription
+  description: '[G09] 팔로우, 이웃 추가, 상호이웃(서로이웃) 신청/수락/거절, 이웃 그룹 관리, 알림/뉴스레터 구독'
+- name: Comments
+  description: '[G10] 2뎁스 댓글/대댓글 작성/수정/삭제, 비밀댓글, 댓글 승인/고정, 방명록 CRUD'
+- name: Reactions
+  description: '[G11] 게시글 6종 공감 리액션 토글 및 공감자 목록, 댓글 좋아요 토글'
+- name: Bookmarks
+  description: '[G12] 게시글 북마크 저장/해제, 폴더별 북마크 목록, 읽기 진행률 동기화'
+- name: Notifications
+  description: '[G13] 인앱 알림 목록, 미확인 카운트, SSE 실시간 스트림, 일괄 읽음, 채널별 수신 설정, Web Push 등록'
+- name: Search
+  description: '[G14] 통합/블로그별 게시글 검색, 블로그 검색, 태그 검색, 검색어 자동완성, 검색 클릭 비콘'
+- name: Recommendations
+  description: '[G15] 구독/이웃 새 글 피드, 개인화 추천 피드, 실시간/일간/주간 인기 게시글, 인기 블로그, 관련 글, 피드백'
+- name: Analytics
+  description: '[G16] 열람/완독 비콘 수집, 방문자/페이지뷰 개요, 게시글별 성과, 유입 경로/검색어, 독자 분포, 크롤러 통계'
+- name: Custom Domains
+  description: '[G17] 서브도메인/개인 도메인 등록, DNS TXT/CNAME 소유권 검증, 대표 Canonical 도메인 지정, 내부 호스트 리졸브'
+- name: Themes
+  description: '[G18] 공식 테마 카탈로그 조회, 블로그 테마 적용/토큰 커스터마이징/안전 CSS 저장, 기본값 원클릭 복원'
+- name: Advertising
+  description: '[G19] 광고주 계정/캠페인/소재 등록, 문맥 타기팅 광고 송출, 노출/클릭 비콘, 블로그 광고 슬롯 설정'
+- name: Membership & Payments
+  description: '[G20] 유료 멤버십 플랜 관리, 단건 유료글 구매, 독자 후원, PG 결제 웹훅, 복식부기 원장 및 정산 출금 신청'
+- name: Moderation
+  description: '[G21] 콘텐츠/블로그/댓글/저작권 신고 접수, 내 제재 내역 조회 및 이의신청(Appeal) 제출, 사용자 차단'
+- name: Admin
+  description: '[G22] 회원/블로그/게시글/댓글/모더레이션/검색/광고심사/정산승인/시스템설정/기능플래그/감사로그 통합 관리'
+- name: Import / Export
+  description: '[G23] 블로그 전체 백업 내보내기(Markdown/HTML/WXR ZIP), 외부 블로그 가져오기 및 오류 리포트, RSS/Atom 피드'
+- name: TreeScan Integration
+  description: '[G24] TreeScan 증분 공개 색인 동기화 피드, 자매 플랫폼 디스커버리 API, OIDC 통합 계정 매핑, 연동 헬스체크'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access Token (RS256/EdDSA JWT, 15m TTL)
+    RefreshCookieAuth:
+      type: apiKey
+      in: cookie
+      name: tb_refresh_token
+      description: HttpOnly Secure SameSite=Lax Refresh Token Cookie
+    ServiceHMACAuth:
+      type: apiKey
+      in: header
+      name: X-TreeBlog-Service-Signature
+      description: HMAC-SHA256 / mTLS Service-to-Service Authentication for TreeScan & PG Webhooks
+  parameters:
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 128
+      description: 멱등성 보장 키 (결제, 정산, 발행, 생성 요청의 중복 실행 방지)
+    CursorQueryParam:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Keyset(Cursor) 페이지네이션 불투명 커서 토큰
+    LimitQueryParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: 페이지당 반환 항목 수 (최대 100)
+  schemas:
+    StandardErrorResponse:
+      type: object
+      required:
+      - error
+      properties:
+        error:
+          type: object
+          required:
+          - code
+          - message
+          - request_id
+          - timestamp
+          properties:
+            code:
+              type: string
+              example: FORBIDDEN_MUTUAL_ONLY
+            message:
+              type: string
+              example: 상호이웃에게만 공개된 게시글입니다.
+            request_id:
+              type: string
+              example: req_018f2a107b11
+            timestamp:
+              type: string
+              format: date-time
+            details:
+              type: array
+              items:
+                type: object
+    CursorPageMeta:
+      type: object
+      required:
+      - has_next
+      properties:
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        has_next:
+          type: boolean
+        total_estimate:
+          type: integer
+    GenericSuccessResponse:
+      type: object
+      required:
+      - data
+      - request_id
+      properties:
+        data:
+          type: object
+        meta:
+          $ref: '#/components/schemas/CursorPageMeta'
+        request_id:
+          type: string
+paths:
+  /api/v1/auth/register:
+    post:
+      operationId: ep_auth_001
+      tags:
+      - Authentication
+      summary: '[EP-AUTH-001] 이메일 신규 회원가입'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `10/hour/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-001`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,409,422,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-AUTH-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security: []
+  /api/v1/auth/verify-email:
+    post:
+      operationId: ep_auth_002
+      tags:
+      - Authentication
+      summary: '[EP-AUTH-002] 이메일 인증 코드 확인'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `20/hour/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-001`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,410,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-AUTH-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security: []
+  /api/v1/auth/login:
+    post:
+      operationId: ep_auth_003
+      tags:
+      - Authentication
+      summary: '[EP-AUTH-003] 이메일/비밀번호 로그인 및 토큰 발급'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `10/5m/IP`
+
+        - **Idempotency**: `Non-Idempotent`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-002`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,401,403,423,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-AUTH-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security: []
+  /api/v1/auth/refresh:
+    post:
+      operationId: ep_auth_004
+      tags:
+      - Authentication
+      summary: '[EP-AUTH-004] Refresh Token Rotation 기반 토큰 갱신'
+      description: '- **Authentication**: `COOKIE_REFRESH`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `30/5m/User`
+
+        - **Idempotency**: `Non-Idempotent`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-IAM-001`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-AUTH-004 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - RefreshCookieAuth: []
+  /api/v1/auth/logout:
+    post:
+      operationId: ep_auth_005
+      tags:
+      - Authentication
+      summary: '[EP-AUTH-005] 현재 세션 로그아웃 및 토큰 폐기'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-002`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-AUTH-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/auth/password/forgot:
+    post:
+      operationId: ep_auth_006
+      tags:
+      - Authentication
+      summary: '[EP-AUTH-006] 비밀번호 재설정 링크 발송'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `5/hour/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-003`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-AUTH-006 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security: []
+  /api/v1/auth/password/reset:
+    post:
+      operationId: ep_auth_007
+      tags:
+      - Authentication
+      summary: '[EP-AUTH-007] 재설정 토큰으로 새 비밀번호 설정'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `10/hour/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-003`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,410,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-AUTH-007 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security: []
+  /api/v1/auth/oauth/{provider}/start:
+    get:
+      operationId: ep_auth_008
+      tags:
+      - Authentication
+      summary: '[EP-AUTH-008] 소셜/OIDC 로그인 PKCE 시작'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `30/5m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-IAM-002`'
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/auth/mfa/verify:
+    post:
+      operationId: ep_auth_009
+      tags:
+      - Authentication
+      summary: '[EP-AUTH-009] TOTP 2단계 인증 검증 및 설정 활성화'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `10/5m/User`
+
+        - **Idempotency**: `Non-Idempotent`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-004`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,401,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-AUTH-009 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/me:
+    get:
+      operationId: ep_user_001
+      tags:
+      - User
+      summary: '[EP-USER-001] 내 계정 및 프로필 상세 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `120/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-005`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/profile:
+    patch:
+      operationId: ep_user_002
+      tags:
+      - User
+      summary: '[EP-USER-002] 내 프로필(닉네임, 소개, 아바타) 수정'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-005`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,409,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-USER-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/me/preferences:
+    patch:
+      operationId: ep_user_003
+      tags:
+      - User
+      summary: '[EP-USER-003] 인터페이스 언어(Locale) 및 타임존 설정 변경'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-GLB-002`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-USER-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/me/sessions:
+    get:
+      operationId: ep_user_004
+      tags:
+      - User
+      summary: '[EP-USER-004] 현재 활성 로그인 기기 및 세션 목록 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-USR-004`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/sessions/{sessionId}:
+    delete:
+      operationId: ep_user_005
+      tags:
+      - User
+      summary: '[EP-USER-005] 특정 기기 세션 원격 강제 로그아웃'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-004`'
+      parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/deactivate:
+    post:
+      operationId: ep_user_006
+      tags:
+      - User
+      summary: '[EP-USER-006] 계정 탈퇴 신청 (30일 유예 및 블로그 처리)'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `5/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-USR-006`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-USER-006 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs:
+    post:
+      operationId: ep_bcrt_001
+      tags:
+      - Blog Creation
+      summary: '[EP-BCRT-001] 신규 개인/전문/기업 블로그 개설'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `10/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-001`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,409,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-BCRT-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/check-handle:
+    get:
+      operationId: ep_bcrt_002
+      tags:
+      - Blog Creation
+      summary: '[EP-BCRT-002] 블로그 핸들 중복 및 예약어 실시간 검사'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-001`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/blogs:
+    get:
+      operationId: ep_bcrt_003
+      tags:
+      - Blog Creation
+      summary: '[EP-BCRT-003] 내가 소유하거나 팀 멤버로 참여 중인 블로그 목록'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `120/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-002`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}:
+    get:
+      operationId: ep_bmgt_001
+      tags:
+      - Blog Management
+      summary: '[EP-BMGT-001] 블로그 상세 설정 및 메타데이터 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ANALYST+`
+
+        - **Rate Limit**: `120/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+    patch:
+      operationId: ep_bmgt_002
+      tags:
+      - Blog Management
+      summary: '[EP-BMGT-002] 블로그 제목, 소개, 로고, 커버, 언어 수정'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-BMGT-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/settings:
+    put:
+      operationId: ep_bmgt_003
+      tags:
+      - Blog Management
+      summary: '[EP-BMGT-003] 블로그 운영 정책(기본 공개범위, 댓글, RSS, 우클릭방지) 변경'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-BMGT-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/members:
+    get:
+      operationId: ep_bmgt_004
+      tags:
+      - Blog Management
+      summary: '[EP-BMGT-004] 팀 블로그 멤버 및 역할 목록 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ANALYST+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/members/invite:
+    post:
+      operationId: ep_bmgt_005
+      tags:
+      - Blog Management
+      summary: '[EP-BMGT-005] 팀 블로그 멤버 초대 및 역할(ADMIN/EDITOR/AUTHOR/ANALYST) 부여'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `20/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-BMGT-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/navigation:
+    put:
+      operationId: ep_bmgt_006
+      tags:
+      - Blog Management
+      summary: '[EP-BMGT-006] 블로그 상단 커스텀 메뉴 구성 저장'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-004`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-BMGT-006 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/close:
+    post:
+      operationId: ep_bmgt_007
+      tags:
+      - Blog Management
+      summary: '[EP-BMGT-007] 블로그 폐쇄 신청 (30일 유예 기간 시작)'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `BLOG_OWNER`
+
+        - **Rate Limit**: `5/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-LFC-003`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-BMGT-007 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/posts:
+    post:
+      operationId: ep_edit_001
+      tags:
+      - Post Editor
+      summary: '[EP-EDIT-001] 신규 게시글 초안(DRAFT) 생성'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-EDIT-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-EDIT-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/posts/{postId}/autosave:
+    put:
+      operationId: ep_edit_002
+      tags:
+      - Post Editor
+      summary: '[EP-EDIT-002] 작성 중 본문 JSON AST 자동저장 (Optimistic Lock 검증)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `120/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-EDIT-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-EDIT-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/posts/{postId}/revisions:
+    get:
+      operationId: ep_edit_003
+      tags:
+      - Post Editor
+      summary: '[EP-EDIT-003] 게시글 수정 이력(Revisions) 목록 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-EDIT-003`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/posts/{postId}/revisions/{revisionId}/restore:
+    post:
+      operationId: ep_edit_004
+      tags:
+      - Post Editor
+      summary: '[EP-EDIT-004] 특정 버전 리비전으로 본문 복원'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `20/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-EDIT-003`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: revisionId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-EDIT-004 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/editor/link-preview:
+    post:
+      operationId: ep_edit_005
+      tags:
+      - Post Editor
+      summary: '[EP-EDIT-005] 외부 링크 OpenGraph 메타데이터 안전 추출 (SSRF 방어)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-SEC-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,422,502)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-EDIT-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/editor/markdown-convert:
+    post:
+      operationId: ep_edit_006
+      tags:
+      - Post Editor
+      summary: '[EP-EDIT-006] Markdown 원문 <-> Tiptap JSON AST 상호 변환'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-EDIT-004`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-EDIT-006 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/posts/{postId}/publish:
+    post:
+      operationId: ep_pub_001
+      tags:
+      - Post Publishing
+      summary: '[EP-PUB-001] 게시글 즉시 발행 또는 예약 발행(SCHEDULED) 설정'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-PUB-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404,409,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PUB-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/posts/{postId}:
+    patch:
+      operationId: ep_pub_002
+      tags:
+      - Post Publishing
+      summary: '[EP-PUB-002] 발행된 게시글 수정 및 슬러그/SEO/공개범위 변경'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-PUB-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404,409,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PUB-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+    delete:
+      operationId: ep_pub_004
+      tags:
+      - Post Publishing
+      summary: '[EP-PUB-004] 게시글 휴지통 이동 (Soft Delete, 30일 보관)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-LFC-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/posts/{postId}/unpublish:
+    post:
+      operationId: ep_pub_003
+      tags:
+      - Post Publishing
+      summary: '[EP-PUB-003] 발행 취소 및 비공개 초안 전환 (검색 색인 즉시 삭제)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-LFC-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PUB-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/posts/{postId}/restore:
+    post:
+      operationId: ep_pub_005
+      tags:
+      - Post Publishing
+      summary: '[EP-PUB-005] 휴지통 게시글 복원'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-LFC-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PUB-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/public/blogs/{blogKey}/posts:
+    get:
+      operationId: ep_pub_006
+      tags:
+      - Post Publishing
+      summary: '[EP-PUB-006] 특정 블로그의 공개(또는 권한 허용) 게시글 목록 조회'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC_OR_RELATION`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-PUB-003`'
+      parameters:
+      - name: blogKey
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/public/blogs/{blogKey}/posts/{slug}:
+    get:
+      operationId: ep_pub_007
+      tags:
+      - Post Publishing
+      summary: '[EP-PUB-007] 게시글 상세 조회 (SSR/SEO 메타 및 공개범위 권한 검증)'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC_OR_RELATION`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-001`'
+      parameters:
+      - name: blogKey
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404,410,451)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/blogs/{blogId}/media/upload-sessions:
+    post:
+      operationId: ep_med_001
+      tags:
+      - Media
+      summary: '[EP-MED-001] S3 Presigned 업로드 세션 발급 및 용량/형식 사전 검증'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MED-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,413,415,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-MED-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/media/upload-sessions/{sessionId}/complete:
+    post:
+      operationId: ep_med_002
+      tags:
+      - Media
+      summary: '[EP-MED-002] 업로드 완료 확인 및 EXIF 제거·WebP/AVIF 변환 잡 트리거'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MED-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,404,415,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-MED-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/media:
+    get:
+      operationId: ep_med_003
+      tags:
+      - Media
+      summary: '[EP-MED-003] 블로그 미디어 라이브러리 목록 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-MED-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/media/{assetId}:
+    patch:
+      operationId: ep_med_004
+      tags:
+      - Media
+      summary: '[EP-MED-004] 이미지 대체 텍스트(alt_text) 및 캡션 수정'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MED-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-MED-004 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/media/video-embed:
+    post:
+      operationId: ep_med_005
+      tags:
+      - Media
+      summary: '[EP-MED-005] 외부 동영상(YouTube/Vimeo 등) oEmbed 검증 및 안전 임베드 생성'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_AUTHOR+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MED-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-MED-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/categories:
+    get:
+      operationId: ep_cat_001
+      tags:
+      - Category & Tags
+      summary: '[EP-CAT-001] 블로그 2뎁스 카테고리 트리 조회'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-003`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+    post:
+      operationId: ep_cat_002
+      tags:
+      - Category & Tags
+      summary: '[EP-CAT-002] 신규 카테고리 생성'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_EDITOR+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-003`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-CAT-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/categories/reorder:
+    put:
+      operationId: ep_cat_003
+      tags:
+      - Category & Tags
+      summary: '[EP-CAT-003] 카테고리 계층 및 정렬 순서 일괄 변경'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_EDITOR+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-003`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-CAT-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/categories/{categoryId}:
+    delete:
+      operationId: ep_cat_004
+      tags:
+      - Category & Tags
+      summary: '[EP-CAT-004] 카테고리 삭제 및 소속 게시글 안전 이동'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_EDITOR+`
+
+        - **Rate Limit**: `20/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-003`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: categoryId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/tags/popular:
+    get:
+      operationId: ep_cat_005
+      tags:
+      - Category & Tags
+      summary: '[EP-CAT-005] 플랫폼 및 주제별 인기 태그 목록 조회'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-SRC-002`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/blogs/{blogId}/follow:
+    post:
+      operationId: ep_fol_001
+      tags:
+      - Follow & Subscription
+      summary: '[EP-FOL-001] 팔로우 / 이웃 추가 / 상호이웃(서로이웃) 신청'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-FOL-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+    delete:
+      operationId: ep_fol_002
+      tags:
+      - Follow & Subscription
+      summary: '[EP-FOL-002] 팔로우 / 이웃 / 상호이웃 관계 해제'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/mutual-requests:
+    get:
+      operationId: ep_fol_003
+      tags:
+      - Follow & Subscription
+      summary: '[EP-FOL-003] 수신/발신 상호이웃 신청 목록 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-COM-002`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/mutual-requests/{requestId}/respond:
+    post:
+      operationId: ep_fol_004
+      tags:
+      - Follow & Subscription
+      summary: '[EP-FOL-004] 상호이웃 신청 수락(ACCEPTED) 또는 거절(REJECTED)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-002`'
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-FOL-004 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/subscription:
+    put:
+      operationId: ep_fol_005
+      tags:
+      - Follow & Subscription
+      summary: '[EP-FOL-005] 블로그 새 글 알림(인앱/푸시/이메일 뉴스레터) 구독 설정'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-NOT-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-FOL-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/posts/{postId}/comments:
+    get:
+      operationId: ep_cmt_001
+      tags:
+      - Comments
+      summary: '[EP-CMT-001] 게시글 댓글·대댓글 목록 조회 (비밀댓글 마스킹 및 권한 검증)'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC_OR_RELATION`
+
+        - **Rate Limit**: `180/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-COM-004`'
+      parameters:
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+    post:
+      operationId: ep_cmt_002
+      tags:
+      - Comments
+      summary: '[EP-CMT-002] 댓글 또는 대댓글 작성 (비밀댓글/멘션 지원)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `20/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-004`'
+      parameters:
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404,422,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-CMT-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/comments/{commentId}:
+    patch:
+      operationId: ep_cmt_003
+      tags:
+      - Comments
+      summary: '[EP-CMT-003] 내 댓글 수정 또는 블로그 주인의 댓글 승인/고정 처리'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `COMMENT_OWNER_OR_BLOG_MOD`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-004`'
+      parameters:
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-CMT-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+    delete:
+      operationId: ep_cmt_004
+      tags:
+      - Comments
+      summary: '[EP-CMT-004] 댓글 삭제 (대댓글 존재 시 마스킹 소프트 삭제)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `COMMENT_OWNER_OR_BLOG_MOD`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-004`'
+      parameters:
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/guestbook:
+    post:
+      operationId: ep_cmt_005
+      tags:
+      - Comments
+      summary: '[EP-CMT-005] 블로그 방명록 글/답글 작성 (비밀글 지원)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `20/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-BLOG-005`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-CMT-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/posts/{postId}/reactions:
+    post:
+      operationId: ep_rct_001
+      tags:
+      - Reactions
+      summary: '[EP-RCT-001] 게시글 6종 공감 리액션(LIKE/LOVE/HELPFUL 등) 등록/변경'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-003`'
+      parameters:
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-RCT-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+    delete:
+      operationId: ep_rct_002
+      tags:
+      - Reactions
+      summary: '[EP-RCT-002] 게시글 공감 리액션 취소'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-003`'
+      parameters:
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/comments/{commentId}/like:
+    post:
+      operationId: ep_rct_003
+      tags:
+      - Reactions
+      summary: '[EP-RCT-003] 댓글 좋아요 토글'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-004`'
+      parameters:
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-RCT-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/posts/{postId}/bookmarks:
+    post:
+      operationId: ep_bmk_001
+      tags:
+      - Bookmarks
+      summary: '[EP-BMK-001] 게시글 북마크 추가 및 폴더/읽기진행률 저장'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-005`'
+      parameters:
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-BMK-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+    delete:
+      operationId: ep_bmk_002
+      tags:
+      - Bookmarks
+      summary: '[EP-BMK-002] 게시글 북마크 해제'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-005`'
+      parameters:
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/bookmarks:
+    get:
+      operationId: ep_bmk_003
+      tags:
+      - Bookmarks
+      summary: '[EP-BMK-003] 내 북마크 보관함 목록 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-COM-005`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/notifications:
+    get:
+      operationId: ep_not_001
+      tags:
+      - Notifications
+      summary: '[EP-NOT-001] 내 알림 목록 조회 (Rollup 병합 적용)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `120/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-NOT-001`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/notifications/read-all:
+    post:
+      operationId: ep_not_002
+      tags:
+      - Notifications
+      summary: '[EP-NOT-002] 미확인 알림 전체 읽음 처리'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-NOT-001`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-NOT-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/me/notifications/stream:
+    get:
+      operationId: ep_not_003
+      tags:
+      - Notifications
+      summary: '[EP-NOT-003] 실시간 인앱 알림 Server-Sent Events(SSE) 스트림'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `10/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-NOT-001`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/me/notification-preferences:
+    put:
+      operationId: ep_not_004
+      tags:
+      - Notifications
+      summary: '[EP-NOT-004] 유형별/채널별 알림 수신 설정 및 방해금지 시간 저장'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-NOT-002`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-NOT-004 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/me/push-subscriptions:
+    post:
+      operationId: ep_not_005
+      tags:
+      - Notifications
+      summary: '[EP-NOT-005] W3C VAPID 웹 푸시 구독 엔드포인트 등록'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `20/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-NOT-002`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-NOT-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/search/posts:
+    get:
+      operationId: ep_src_001
+      tags:
+      - Search
+      summary: '[EP-SRC-001] OpenSearch 기반 게시글 통합 검색 및 블로그 내 검색'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC`
+
+        - **Rate Limit**: `120/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-SRC-001`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,429,503)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/search/blogs:
+    get:
+      operationId: ep_src_002
+      tags:
+      - Search
+      summary: '[EP-SRC-002] 블로그 이름·핸들·주제 검색'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC`
+
+        - **Rate Limit**: `120/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-SRC-002`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/search/tags:
+    get:
+      operationId: ep_src_003
+      tags:
+      - Search
+      summary: '[EP-SRC-003] 태그별 공개 게시글 검색'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC`
+
+        - **Rate Limit**: `120/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-SRC-002`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/search/suggest:
+    get:
+      operationId: ep_src_004
+      tags:
+      - Search
+      summary: '[EP-SRC-004] 실시간 검색어 자동완성 및 오타 교정 제안'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-SRC-002`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/search/click:
+    post:
+      operationId: ep_src_005
+      tags:
+      - Search
+      summary: '[EP-SRC-005] 검색 품질 평가용 결과 클릭/체류 비콘 기록'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-SRC-002`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-SRC-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security: []
+  /api/v1/feed/following:
+    get:
+      operationId: ep_rec_001
+      tags:
+      - Recommendations
+      summary: '[EP-REC-001] 구독 및 이웃/상호이웃 블로그의 최신 글 모아보기 피드'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `120/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-REC-001`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/feed/recommended:
+    get:
+      operationId: ep_rec_002
+      tags:
+      - Recommendations
+      summary: '[EP-REC-002] 관심사 기반 개인화 추천 게시글 피드'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC`
+
+        - **Rate Limit**: `120/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-REC-002`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/discover/trending-posts:
+    get:
+      operationId: ep_rec_003
+      tags:
+      - Recommendations
+      summary: '[EP-REC-003] 시간 감쇠+품질 기반 실시간/일간/주간 인기 게시글'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-REC-002`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/discover/popular-blogs:
+    get:
+      operationId: ep_rec_004
+      tags:
+      - Recommendations
+      summary: '[EP-REC-004] 주제 카테고리별 추천 인기 블로그'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-REC-002`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/public/posts/{postId}/related:
+    get:
+      operationId: ep_rec_005
+      tags:
+      - Recommendations
+      summary: '[EP-REC-005] 현재 게시글과 연관된 추천 글 목록'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-REC-002`'
+      parameters:
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/public/analytics/beacon:
+    post:
+      operationId: ep_anl_001
+      tags:
+      - Analytics
+      summary: '[EP-ANL-001] 1st-Party 비식별 열람·체류시간·완독률 비콘 수집'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ANL-001`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 204,400)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ANL-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security: []
+  /api/v1/blogs/{blogId}/analytics/overview:
+    get:
+      operationId: ep_anl_002
+      tags:
+      - Analytics
+      summary: '[EP-ANL-002] 블로그 기간별 방문자(UV)·페이지뷰(PV)·구독전환 요약'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ANALYST+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ANL-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/analytics/posts:
+    get:
+      operationId: ep_anl_003
+      tags:
+      - Analytics
+      summary: '[EP-ANL-003] 블로그 내 게시글별 상세 조회·완독·공감 성과 순위'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ANALYST+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-ANL-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/analytics/referrers:
+    get:
+      operationId: ep_anl_004
+      tags:
+      - Analytics
+      summary: '[EP-ANL-004] 유입 경로(TreeScan/Google/Naver/소셜) 및 유입 검색어 분석'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ANALYST+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ANL-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/analytics/crawlers:
+    get:
+      operationId: ep_anl_005
+      tags:
+      - Analytics
+      summary: '[EP-ANL-005] 검색엔진 봇(TreeScanBot, Googlebot 등) 크롤링 통계'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ANALYST+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ANL-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/domains:
+    get:
+      operationId: ep_dom_001
+      tags:
+      - Custom Domains
+      summary: '[EP-DOM-001] 블로그 연결 도메인 및 TLS 상태 목록 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-DOM-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+    post:
+      operationId: ep_dom_002
+      tags:
+      - Custom Domains
+      summary: '[EP-DOM-002] 개인 소유 커스텀 도메인 등록 및 TXT 검증 토큰 발급'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `10/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-DOM-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,409,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-DOM-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/domains/{domainId}/verify:
+    post:
+      operationId: ep_dom_003
+      tags:
+      - Custom Domains
+      summary: '[EP-DOM-003] DNS TXT 및 CNAME/A 설정 즉시 검증 및 ACME TLS 프로비저닝 요청'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `20/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-DOM-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: domainId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-DOM-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/domains/{domainId}/primary:
+    put:
+      operationId: ep_dom_004
+      tags:
+      - Custom Domains
+      summary: '[EP-DOM-004] 대표 Canonical 도메인 지정 (타 주소 301 리다이렉트 활성화)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `20/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-DOM-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: domainId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-DOM-004 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/domains/{domainId}:
+    delete:
+      operationId: ep_dom_005
+      tags:
+      - Custom Domains
+      summary: '[EP-DOM-005] 커스텀 도메인 연결 해제'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `20/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-DOM-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: domainId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/themes:
+    get:
+      operationId: ep_thm_001
+      tags:
+      - Themes
+      summary: '[EP-THM-001] 플랫폼 공식 반응형 테마 카탈로그 조회'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-DSN-001`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 200)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/blogs/{blogId}/theme:
+    get:
+      operationId: ep_thm_002
+      tags:
+      - Themes
+      summary: '[EP-THM-002] 블로그 현재 테마 및 커스터마이징 토큰 조회'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-DSN-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+    put:
+      operationId: ep_thm_003
+      tags:
+      - Themes
+      summary: '[EP-THM-003] 블로그 테마 변경, 레이아웃/위젯/다크모드 및 안전 CSS 저장'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-DSN-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-THM-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/theme/reset:
+    post:
+      operationId: ep_thm_004
+      tags:
+      - Themes
+      summary: '[EP-THM-004] 블로그 테마 디자인 설정 기본값 원클릭 복원'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_ADMIN+`
+
+        - **Rate Limit**: `15/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-DSN-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-THM-004 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/ads/campaigns:
+    post:
+      operationId: ep_ads_001
+      tags:
+      - Advertising
+      summary: '[EP-ADS-001] 광고주 신규 광고 캠페인 및 소재 등록 (심사 대기)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `ADVERTISER`
+
+        - **Rate Limit**: `20/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MON-003`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,402,403,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ADS-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+    get:
+      operationId: ep_ads_002
+      tags:
+      - Advertising
+      summary: '[EP-ADS-002] 광고주 캠페인 목록 및 노출/클릭/소진액 성과 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `ADVERTISER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-MON-003`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/ad-placements:
+    put:
+      operationId: ep_ads_003
+      tags:
+      - Advertising
+      summary: '[EP-ADS-003] 블로거 광고 슬롯(상단/중간/하단/사이드바) 활성화 설정'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_OWNER`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MON-003`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ADS-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/public/ads/serve:
+    get:
+      operationId: ep_ads_004
+      tags:
+      - Advertising
+      summary: '[EP-ADS-004] 문맥/카테고리 타기팅 광고 송출 결정 (Brand Safety 검증)'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MON-003`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 200,204)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/public/ads/events:
+    post:
+      operationId: ep_ads_005
+      tags:
+      - Advertising
+      summary: '[EP-ADS-005] 광고 노출(IMPRESSION) 및 클릭(CLICK) 비콘 수집 (IVT 필터)'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MON-003`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 204,400)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ADS-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security: []
+  /api/v1/blogs/{blogId}/memberships:
+    post:
+      operationId: ep_pay_001
+      tags:
+      - Membership & Payments
+      summary: '[EP-PAY-001] 블로그 유료 멤버십 티어 생성/수정'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_OWNER`
+
+        - **Rate Limit**: `20/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MON-002`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PAY-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/orders:
+    post:
+      operationId: ep_pay_002
+      tags:
+      - Membership & Payments
+      summary: '[EP-PAY-002] 유료 멤버십 구독 / 단건 유료글 구매 / 독자 후원 주문 생성'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `30/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MON-001`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,409,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PAY-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/payments/webhook/{provider}:
+    post:
+      operationId: ep_pay_003
+      tags:
+      - Membership & Payments
+      summary: '[EP-PAY-003] PG사 결제 승인/취소/환불 웹훅 수신 및 복식부기 원장 기장'
+      description: '- **Authentication**: `HMAC_SIGNATURE`
+
+        - **Authorization (RBAC)**: `PG_WEBHOOK`
+
+        - **Rate Limit**: `1000/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MON-001`'
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 200,400,401)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PAY-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - ServiceHMACAuth: []
+  /api/v1/orders/{orderId}/refund:
+    post:
+      operationId: ep_pay_004
+      tags:
+      - Membership & Payments
+      summary: '[EP-PAY-004] 주문 취소 및 청약철회 환불 요청 (역분개 원장 전표 생성)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `10/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MON-001`'
+      parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PAY-004 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/monetization/ledger:
+    get:
+      operationId: ep_pay_005
+      tags:
+      - Membership & Payments
+      summary: '[EP-PAY-005] 블로거 수익 배분 내역 및 복식부기 정산 원장 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_OWNER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-MON-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/monetization/payouts:
+    post:
+      operationId: ep_pay_006
+      tags:
+      - Membership & Payments
+      summary: '[EP-PAY-006] 크리에이터 정산금 지급(출금) 신청 (MFA 필수)'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `BLOG_OWNER`
+
+        - **Rate Limit**: `5/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-MON-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,409,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PAY-006 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/reports:
+    post:
+      operationId: ep_mod_001
+      tags:
+      - Moderation
+      summary: '[EP-MOD-001] 게시글·댓글·블로그·저작권(DMCA)·명예훼손 신고 접수'
+      description: '- **Authentication**: `OPTIONAL_JWT`
+
+        - **Authorization (RBAC)**: `PUBLIC`
+
+        - **Rate Limit**: `20/hour/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ADM-002`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,422,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-MOD-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security: []
+  /api/v1/me/appeals:
+    post:
+      operationId: ep_mod_002
+      tags:
+      - Moderation
+      summary: '[EP-MOD-002] 게시 중단 또는 블로그 제재에 대한 작성자 이의신청(소명) 제출'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `10/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ADM-002`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-MOD-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/users/{userId}/block:
+    post:
+      operationId: ep_mod_003
+      tags:
+      - Moderation
+      summary: '[EP-MOD-003] 특정 사용자 차단 (댓글·공감·상호이웃 원천 차단)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-002`'
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-MOD-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+    delete:
+      operationId: ep_mod_004
+      tags:
+      - Moderation
+      summary: '[EP-MOD-004] 사용자 차단 해제'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-COM-002`'
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/admin/users:
+    get:
+      operationId: ep_adm_001
+      tags:
+      - Admin
+      summary: '[EP-ADM-001] 전체 회원 검색·상태·가입통계 조회 및 정지/권한 제어'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `SUPPORT_AGENT+`
+
+        - **Rate Limit**: `120/1m/Admin`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-ADM-001`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/admin/blogs/{blogId}/action:
+    post:
+      operationId: ep_adm_002
+      tags:
+      - Admin
+      summary: '[EP-ADM-002] 블로그 강제 정지/해제 및 도메인 연결 강제 차단'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `TRUST_SAFETY_MOD+`
+
+        - **Rate Limit**: `60/1m/Admin`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ADM-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ADM-002 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/admin/posts/{postId}/action:
+    post:
+      operationId: ep_adm_003
+      tags:
+      - Admin
+      summary: '[EP-ADM-003] 게시글 임시 게시중단(QUARANTINE), 비공개 전환, 복원 처리'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `TRUST_SAFETY_MOD+`
+
+        - **Rate Limit**: `60/1m/Admin`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ADM-002`'
+      parameters:
+      - name: postId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ADM-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/admin/moderation/cases/{caseId}/decide:
+    post:
+      operationId: ep_adm_004
+      tags:
+      - Admin
+      summary: '[EP-ADM-004] 신고 모더레이션 케이스 심사 결정 및 제재/기각 처분'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `TRUST_SAFETY_MOD+`
+
+        - **Rate Limit**: `60/1m/Admin`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ADM-002`'
+      parameters:
+      - name: caseId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ADM-004 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/admin/moderation/appeals/{appealId}/resolve:
+    post:
+      operationId: ep_adm_005
+      tags:
+      - Admin
+      summary: '[EP-ADM-005] 이의신청 재심사 승인(원상복구) 또는 기각 결정'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `TRUST_SAFETY_MOD+`
+
+        - **Rate Limit**: `60/1m/Admin`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ADM-002`'
+      parameters:
+      - name: appealId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ADM-005 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/admin/search/control:
+    post:
+      operationId: ep_adm_006
+      tags:
+      - Admin
+      summary: '[EP-ADM-006] 검색 색인 재구축, 스팸 검색어 차단, 문서 품질 오버라이드'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `TRUST_SAFETY_MOD+`
+
+        - **Rate Limit**: `30/1m/Admin`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ADM-003`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ADM-006 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/admin/monetization/review:
+    post:
+      operationId: ep_adm_007
+      tags:
+      - Admin
+      summary: '[EP-ADM-007] 광고 캠페인 소재 승인/거절 및 크리에이터 정산 지급 승인/보류'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `AD_REVIEWER_OR_FINANCE`
+
+        - **Rate Limit**: `60/1m/Admin`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ADM-004`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-ADM-007 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/admin/system/audit-logs:
+    get:
+      operationId: ep_adm_008
+      tags:
+      - Admin
+      summary: '[EP-ADM-008] 불변 감사 로그(Audit Logs), 백업 현황, Feature Flag 통합 관리'
+      description: '- **Authentication**: `BEARER_JWT_MFA`
+
+        - **Authorization (RBAC)**: `SUPER_ADMIN`
+
+        - **Rate Limit**: `60/1m/Admin`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-ADM-001`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/exports:
+    post:
+      operationId: ep_prt_001
+      tags:
+      - Import / Export
+      summary: '[EP-PRT-001] 블로그 콘텐츠 전체 백업 내보내기(Markdown/HTML/WXR ZIP) 잡 생성'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_OWNER`
+
+        - **Rate Limit**: `5/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-INT-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,429)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PRT-001 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/exports/{jobId}:
+    get:
+      operationId: ep_prt_002
+      tags:
+      - Import / Export
+      summary: '[EP-PRT-002] 내보내기 진행 상태 조회 및 완료된 ZIP Signed URL 다운로드'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_OWNER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-INT-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/imports:
+    post:
+      operationId: ep_prt_003
+      tags:
+      - Import / Export
+      summary: '[EP-PRT-003] 외부 블로그 백업 파일(WXR/Markdown ZIP) 가져오기 실행 (소유권 동의 필수)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_OWNER`
+
+        - **Rate Limit**: `5/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-INT-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,403,413,422)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-PRT-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/imports/{jobId}:
+    get:
+      operationId: ep_prt_004
+      tags:
+      - Import / Export
+      summary: '[EP-PRT-004] 가져오기 진행률, 구 URL->신 URL 매핑표 및 실패 항목 오류 리포트 조회'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `BLOG_OWNER`
+
+        - **Rate Limit**: `60/1m/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-INT-001`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/public/blogs/{blogKey}/rss.xml:
+    get:
+      operationId: ep_prt_005
+      tags:
+      - Import / Export
+      summary: '[EP-PRT-005] 블로그 표준 RSS 2.0 / Atom 1.0 신디케이션 피드 조회'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `300/1m/IP`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-SEO-002`'
+      parameters:
+      - name: blogKey
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 200,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/treescan/sync/feed:
+    get:
+      operationId: ep_tsc_001
+      tags:
+      - TreeScan Integration
+      summary: '[EP-TSC-001] TreeScan 검색엔진용 공개 게시글 증분 색인 피드 및 삭제 툼스톤 스트림'
+      description: '- **Authentication**: `SERVICE_MTLS_HMAC`
+
+        - **Authorization (RBAC)**: `TREESCAN_SYNC_BOT`
+
+        - **Rate Limit**: `600/1m/Service`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-ZTR-002`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - ServiceHMACAuth: []
+  /api/v1/treescan/discovery/posts:
+    get:
+      operationId: ep_tsc_002
+      tags:
+      - TreeScan Integration
+      summary: '[EP-TSC-002] Booking Network 자매 플랫폼(getforTrip/Treewiki 등) 연동용 공개 콘텐츠 조회'
+      description: '- **Authentication**: `SERVICE_MTLS_HMAC`
+
+        - **Authorization (RBAC)**: `BN_PARTNER_SERVICE`
+
+        - **Rate Limit**: `600/1m/Service`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `CURSOR`
+
+        - **Verification Test ID**: `TEST-ZTR-004`'
+      parameters:
+      - $ref: '#/components/parameters/CursorQueryParam'
+      - $ref: '#/components/parameters/LimitQueryParam'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,401,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - ServiceHMACAuth: []
+  /api/v1/treescan/sso/link:
+    post:
+      operationId: ep_tsc_003
+      tags:
+      - TreeScan Integration
+      summary: '[EP-TSC-003] Booking Network / TreeScan OIDC 통합 계정 안전 연결 (데이터 소유권 보존)'
+      description: '- **Authentication**: `BEARER_JWT`
+
+        - **Authorization (RBAC)**: `USER`
+
+        - **Rate Limit**: `10/hour/User`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `AUDIT_LOG_MANDATORY`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-IAM-002`'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,401,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: EP-TSC-003 요청 페이로드 스키마 (상세 필드 제약은 API_CONTRACT.md 참조)
+      security:
+      - BearerAuth: []
+  /api/v1/treescan/health:
+    get:
+      operationId: ep_tsc_004
+      tags:
+      - TreeScan Integration
+      summary: '[EP-TSC-004] TreeScan 통합 어댑터 상태 및 동기화 시퀀스 지연(Lag) 확인'
+      description: '- **Authentication**: `SERVICE_MTLS_HMAC`
+
+        - **Authorization (RBAC)**: `TREESCAN_SYNC_BOT`
+
+        - **Rate Limit**: `120/1m/Service`
+
+        - **Idempotency**: `Required/Supported`
+
+        - **Audit Policy**: `STANDARD_ACCESS_LOG`
+
+        - **Pagination**: `NONE`
+
+        - **Verification Test ID**: `TEST-ZTR-001`'
+      parameters: []
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 200,503)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - ServiceHMACAuth: []
