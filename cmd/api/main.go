@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"treeblog/internal/db"
+	"treeblog/internal/modules/blog"
 	"treeblog/internal/modules/identity"
 	"treeblog/internal/modules/user"
 	"treeblog/internal/platform/config"
@@ -64,10 +65,12 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	userService := user.NewService(pools.Primary)
+	blogService := blog.NewService(pools.Primary)
 
 	modules := []httpserver.Module{
 		identity.NewHandler(identityService),
 		user.NewHandler(userService),
+		blog.NewHandler(blogService),
 	}
 
 	server, err := httpserver.New(cfg.HTTPAddr, modules, pools.Primary.Ping, logger)
