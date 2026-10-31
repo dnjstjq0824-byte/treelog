@@ -13,11 +13,18 @@ Updated 2026-10-28. Source: `BN_TREEBLOG_MASTER_BLUEPRINT_V1_0.zip`, SHA-256 `A0
 
 | Work order | State | Evidence and remaining work |
 | --- | --- | --- |
-| `TB-ARCH-001` | `PARTIAL` | Go HTTP foundation and module packages compile; pnpm workspaces build and typecheck. No independent audit or real container run. |
-| `TB-OPS-001` | `IMPLEMENTED_UNVERIFIED` | Compose, backend Dockerfile, OpenSearch plugin image, and CI workflow exist. Docker is unavailable here, so image builds and service health are unverified. |
-| `TB-DB-001` | `IMPLEMENTED_UNVERIFIED` | First two SQL migrations, pgx pools, transaction helper, migration runner, and Up → Down → Up CI test exist. The integration test was skipped locally because no PostgreSQL server is available. |
-| `TB-ARCH-002` | `NOT_STARTED` | Worker entry point is a lifecycle scaffold only; outbox relay and queues remain to be built. |
-| All Phase 1–10 work orders | `NOT_STARTED` | Domain APIs, editor, publishing, media, search, community, moderation, monetization, and production operations remain to be implemented. |
+| `TB-ARCH-001` | `IMPLEMENTED_UNVERIFIED` | Go HTTP foundation and module packages compile; pnpm workspaces build and typecheck. |
+| `TB-OPS-001` | `IMPLEMENTED_UNVERIFIED` | Compose, backend Dockerfile, OpenSearch plugin image, and CI workflow exist. |
+| `TB-DB-001` | `IMPLEMENTED_UNVERIFIED` | Migrations 0001~0002, pgx pools, transaction helper, migration runner. |
+| `TB-ARCH-002` | `IMPLEMENTED_UNVERIFIED` | Transactional Outbox publisher, SKIP LOCKED relay, and Asynq 4-priority queue worker. |
+| `TB-DB-002` | `IMPLEMENTED_UNVERIFIED` | Complete database schema migrations (0001~0011) for all domains. |
+| `TB-AUTH-001` | `IMPLEMENTED_UNVERIFIED` | Email registration, Argon2id, JWT rotation, password reset, and identity API handlers. |
+| `TB-SEC-001` | `IMPLEMENTED_UNVERIFIED` | SafeDialer SSRF protection, Double-Submit CSRF, sliding-window rate limiter, chained audit log. |
+| `TB-AUTH-002` | `IMPLEMENTED_UNVERIFIED` | RFC 6238 TOTP MFA, backup codes, 2-tier RBAC middleware, user profile & session management. |
+| `TB-BLOG-001` | `IMPLEMENTED_UNVERIFIED` | Blog creation engine, 150+ reserved words validator, team RBAC, guestbook backend. |
+| `TB-BLOG-002` | `IMPLEMENTED_UNVERIFIED` | 2-depth category hierarchy, drag-and-drop reordering, post safe relocation, series, popular tags. |
+| `TB-API-001` / `TB-WEB-001` | `NOT_STARTED` | OpenAPI client generation pipeline and frontend UI kit authentication screens. |
+| Phase 2–10 remaining | `IN_PROGRESS` | Multi-domain routing, block editor, post lifecycle, themes, OpenSearch, community, monetization. |
 
 `VERIFIED` is intentionally unused until the blueprint's required integration and independent audit gates pass.
 
