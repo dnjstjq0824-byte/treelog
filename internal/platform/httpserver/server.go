@@ -27,9 +27,13 @@ type contextKey int
 
 const requestIDKey contextKey = iota
 
-func requestID(r *http.Request) string {
+func RequestID(r *http.Request) string {
 	value, _ := r.Context().Value(requestIDKey).(string)
 	return value
+}
+
+func requestID(r *http.Request) string {
+	return RequestID(r)
 }
 
 func withRequestID(next http.Handler) http.Handler {

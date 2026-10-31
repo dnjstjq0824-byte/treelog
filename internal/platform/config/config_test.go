@@ -14,6 +14,8 @@ func TestLoad(t *testing.T) {
 		t.Fatal("expected invalid shutdown timeout error")
 	}
 	t.Setenv("TREEBLOG_SHUTDOWN_SECONDS", "20")
+	t.Setenv("TREEBLOG_JWT_PRIVATE_KEY_PATH", "test_key.pem")
+	t.Setenv("TREEBLOG_CODE_PEPPER", "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=")
 	if _, err := Load(); err != nil {
 		t.Fatal(err)
 	}

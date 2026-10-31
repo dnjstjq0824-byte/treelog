@@ -35,6 +35,16 @@ type TokenSigner struct {
 	audience string
 }
 
+func NewTokenSigner(key *rsa.PrivateKey, issuer, audience string) (*TokenSigner, error) {
+	if key == nil || issuer == "" || audience == "" {
+		return nil, errors.New("JWT private key, issuer, and audience are required")
+	}
+	if key.N.BitLen() < 2048 {
+		return nil, errors.New("JWT RSA key must be at least 2048 bits")
+	}
+	return &TokenSigner{private: key, public: &key.PublicKey, issuer: issuer, audience: audience}, nil
+}
+
 func LoadTokenSigner(path, issuer, audience string) (*TokenSigner, error) {
 	if path == "" || issuer == "" || audience == "" {
 		return nil, errors.New("JWT key path, issuer, and audience are required")

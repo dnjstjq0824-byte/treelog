@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -34,6 +35,7 @@ func (f *Fault) Error() string { return f.Code }
 
 type VerificationMailer interface {
 	SendVerification(context.Context, string, string) error
+	SendPasswordReset(context.Context, string, string) error
 }
 
 type Service struct {
@@ -360,5 +362,200 @@ func (s *Service) Logout(ctx context.Context, accessToken string) error {
 	}
 	_, err = s.DB.Exec(ctx, `UPDATE sessions SET is_revoked=TRUE,revoked_reason='LOGOUT'
 		WHERE id=$1 AND user_id=$2`, claims.SessionID, claims.Subject)
+	return err
+}
+
+func (s *Service) ForgotPassword(ctx context.Context, rawEmail string) error {
+	email, err := normalizeEmail(rawEmail)
+	if err != nil {
+		return err
+	}
+	var userID string
+	err = s.DB.QueryRow(ctx, "SELECT id FROM users WHERE email=$1", email).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	rawToken, tokenHash, err := randomToken()
+	if err != nil {
+		return err
+	}
+	if _, err := s.DB.Exec(ctx, `INSERT INTO password_reset_challenges(user_id, token_hash, expires_at)
+		VALUES($1, $2, NOW() + INTERVAL '1 hour')`, userID, tokenHash); err != nil {
+		return err
+	}
+	if s.Mailer != nil {
+		_ = s.Mailer.SendPasswordReset(ctx, email, rawToken)
+	}
+	return nil
+}
+
+func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
+	token = strings.TrimSpace(token)
+	if token == "" || len(token) > 256 {
+		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "Invalid reset token"}
+	}
+	newHash, err := HashPassword(newPassword)
+	if err != nil {
+		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: err.Error()}
+	}
+	tokenSum := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(tokenSum[:])
+
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var challengeID, userID string
+	var expiresAt time.Time
+	var consumedAt *time.Time
+	err = tx.QueryRow(ctx, `SELECT id, user_id, expires_at, consumed_at
+		FROM password_reset_challenges WHERE token_hash=$1 FOR UPDATE`, tokenHash).
+		Scan(&challengeID, &userID, &expiresAt, &consumedAt)
+	if errors.Is(err, pgx.ErrNoRows) || consumedAt != nil {
+		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "Invalid or consumed reset token"}
+	}
+	if err != nil {
+		return err
+	}
+	if time.Now().After(expiresAt) {
+		return &Fault{Status: 410, Code: "TOKEN_EXPIRED", Message: "Password reset token has expired"}
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE users SET password_hash=$2, updated_at=NOW() WHERE id=$1`, userID, newHash); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE password_reset_challenges SET consumed_at=NOW() WHERE id=$1`, challengeID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sessions SET is_revoked=TRUE, revoked_reason='PASSWORD_RESET'
+		WHERE user_id=$1 AND is_revoked=FALSE`, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+
+
+// SetupMFA generates a new TOTP secret and backup codes, storing them (inactive) on the user.
+func (s *Service) SetupMFA(ctx context.Context, userID string) (string, []string, error) {
+	if _, err := uuid.Parse(userID); err != nil {
+		return "", nil, &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "Invalid user id"}
+	}
+
+	var alreadyEnabled bool
+	err := s.DB.QueryRow(ctx, `SELECT mfa_enabled FROM users WHERE id=$1`, userID).Scan(&alreadyEnabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil, &Fault{Status: 404, Code: "USER_NOT_FOUND", Message: "User not found"}
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	if alreadyEnabled {
+		return "", nil, &Fault{Status: 409, Code: "INVALID_REQUEST_PAYLOAD", Message: "MFA is already enabled"}
+	}
+
+	secret, err := GenerateTOTPSecret()
+	if err != nil {
+		return "", nil, err
+	}
+	codes, hashes, err := GenerateBackupCodes(10)
+	if err != nil {
+		return "", nil, err
+	}
+	hashJSON, err := json.Marshal(hashes)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if _, err := s.DB.Exec(ctx, `UPDATE users
+		SET mfa_secret_enc=$2, mfa_backup_codes_hash=$3, updated_at=NOW()
+		WHERE id=$1`, userID, []byte(secret), string(hashJSON)); err != nil {
+		return "", nil, err
+	}
+	return secret, codes, nil
+}
+
+// VerifyMFASetup validates the first TOTP code and activates MFA for the user.
+func (s *Service) VerifyMFASetup(ctx context.Context, userID, code string) error {
+	code = strings.TrimSpace(code)
+	if len(code) != 6 {
+		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "Invalid TOTP code"}
+	}
+
+	var secretBytes []byte
+	var enabled bool
+	err := s.DB.QueryRow(ctx, `SELECT mfa_secret_enc, mfa_enabled FROM users WHERE id=$1`, userID).
+		Scan(&secretBytes, &enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return &Fault{Status: 404, Code: "USER_NOT_FOUND", Message: "User not found"}
+	}
+	if err != nil {
+		return err
+	}
+	if enabled {
+		return &Fault{Status: 409, Code: "INVALID_REQUEST_PAYLOAD", Message: "MFA is already enabled"}
+	}
+	if len(secretBytes) == 0 {
+		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "MFA setup has not been started"}
+	}
+
+	if !VerifyTOTP(string(secretBytes), code, time.Now()) {
+		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "Invalid TOTP code"}
+	}
+
+	_, err = s.DB.Exec(ctx, `UPDATE users SET mfa_enabled=TRUE, updated_at=NOW() WHERE id=$1`, userID)
+	return err
+}
+
+// DisableMFA verifies a TOTP or backup code and disables MFA.
+func (s *Service) DisableMFA(ctx context.Context, userID, code string) error {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "Verification code is required"}
+	}
+
+	var secretBytes []byte
+	var enabled bool
+	var backupJSON []byte
+	err := s.DB.QueryRow(ctx, `SELECT mfa_secret_enc, mfa_enabled, mfa_backup_codes_hash FROM users WHERE id=$1`, userID).
+		Scan(&secretBytes, &enabled, &backupJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return &Fault{Status: 404, Code: "USER_NOT_FOUND", Message: "User not found"}
+	}
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "MFA is not enabled"}
+	}
+
+	ok := false
+	if len(code) == 6 && len(secretBytes) > 0 {
+		ok = VerifyTOTP(string(secretBytes), code, time.Now())
+	}
+	if !ok && len(code) == 8 {
+		idx, err := VerifyBackupCode(code, backupJSON)
+		if err == nil && idx >= 0 {
+			ok = true
+		}
+	}
+	if !ok {
+		return &Fault{Status: 401, Code: "MFA_REQUIRED", Message: "Invalid MFA code"}
+	}
+
+	_, err = s.DB.Exec(ctx, `UPDATE users
+		SET mfa_enabled=FALSE, mfa_secret_enc=NULL, mfa_backup_codes_hash='[]'::jsonb, updated_at=NOW()
+		WHERE id=$1`, userID)
+	return err
+}
+
+// MarkSessionMFAVerified marks the given session as having passed MFA.
+func (s *Service) MarkSessionMFAVerified(ctx context.Context, sessionID string) error {
+	_, err := s.DB.Exec(ctx, `UPDATE sessions SET mfa_verified=TRUE WHERE id=$1`, sessionID)
 	return err
 }
