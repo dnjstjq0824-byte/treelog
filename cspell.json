@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+  "version": "0.2",
+  "language": "en,ko",
+  "words": [
+    "treeblog",
+    "treelog",
+    "dnjstjq",
+    "hibiken",
+    "asynq",
+    "pgxpool",
+    "tiptap",
+    "prosemirror",
+    "blurhash",
+    "simhash",
+    "treescan",
+    "oembed",
+    "argon",
+    "argon2id",
+    "totp",
+    "citext",
+    "safenet",
+    "unpublish",
+    "paywalled",
+    "slugify",
+    "idempotency",
+    "autocleaning",
+    "bigframes",
+    "bigtable",
+    "dataform",
+    "dataproc",
+    "gcsfuse",
+    "lakehouse"
+  ],
+  "ignorePaths": [
+    "node_modules/**",
+    ".git/**",
+    "dist/**",
+    "**/*.zst"
+  ]
+}
+

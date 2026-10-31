@@ -12,7 +12,13 @@ import (
 
 	"treeblog/internal/db"
 	"treeblog/internal/modules/blog"
+	"treeblog/internal/modules/domain"
+	"treeblog/internal/modules/editor"
 	"treeblog/internal/modules/identity"
+	"treeblog/internal/modules/media"
+	"treeblog/internal/modules/post"
+	"treeblog/internal/modules/search"
+	"treeblog/internal/modules/theme"
 	"treeblog/internal/modules/user"
 	"treeblog/internal/platform/config"
 	"treeblog/internal/platform/httpserver"
@@ -66,11 +72,23 @@ func run(logger *slog.Logger) error {
 	}
 	userService := user.NewService(pools.Primary)
 	blogService := blog.NewService(pools.Primary)
+	domainService := domain.NewService(pools.Primary)
+	mediaService := media.NewService(pools.Primary)
+	editorService := editor.NewService(pools.Primary)
+	postService := post.NewService(pools.Primary)
+	themeService := theme.NewService(pools.Primary)
+	searchService := search.NewService(pools.Primary)
 
 	modules := []httpserver.Module{
 		identity.NewHandler(identityService),
 		user.NewHandler(userService),
 		blog.NewHandler(blogService),
+		domain.NewHandler(domainService),
+		media.NewHandler(mediaService),
+		editor.NewHandler(editorService),
+		post.NewHandler(postService),
+		theme.NewHandler(themeService),
+		search.NewHandler(searchService),
 	}
 
 	server, err := httpserver.New(cfg.HTTPAddr, modules, pools.Primary.Ping, logger)

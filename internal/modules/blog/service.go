@@ -480,3 +480,4 @@ func (s *Service) ListGuestbookEntries(ctx context.Context, blogID string, viewe
 	}
 	return entries, nil
 }
+

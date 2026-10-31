@@ -233,3 +233,4 @@ func (s *Service) DeleteCategory(ctx context.Context, blogID, categoryID string,
 
 	return tx.Commit(ctx)
 }
+
