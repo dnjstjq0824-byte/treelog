@@ -1,12 +1,16 @@
 <template>
   <div class="tb-hero">
-    <h1 class="tb-hero-title">생각이 자라는 곳, TreeBlog</h1>
+    <p class="tb-hero-edition">
+      <span class="tb-hero-edition-dot" aria-hidden="true" />
+      <span>TreeBlog · 독립 블로그 플랫폼</span>
+    </p>
+    <h1 class="tb-hero-title">생각이 자라는 곳, <span class="tb-hero-title-accent">TreeBlog</span></h1>
     <p class="tb-hero-sub">
       독립적인 글을 쓰고, 읽고, 소유하세요. 당신의 기록이 숲이 됩니다.
     </p>
-    <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px">
-      <NuxtLink to="/register" class="tb-btn tb-btn-primary">무료로 시작하기</NuxtLink>
-      <NuxtLink to="/search" class="tb-btn tb-btn-secondary">글 둘러보기</NuxtLink>
+    <div class="tb-hero-actions">
+      <NuxtLink to="/register" class="tb-btn tb-btn-primary tb-btn-lg">무료로 시작하기</NuxtLink>
+      <NuxtLink to="/search" class="tb-hero-link">글 둘러보기 →</NuxtLink>
     </div>
   </div>
 

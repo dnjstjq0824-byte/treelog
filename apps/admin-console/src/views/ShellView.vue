@@ -1,7 +1,12 @@
 <template>
   <div class="tb-console">
     <aside class="tb-console-side">
-      <RouterLink to="/" class="tb-console-brand">🛡️ Admin</RouterLink>
+      <RouterLink to="/" class="tb-console-brand">
+        <span class="tb-console-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none"><path d="M16 4 L26 10 V16 C26 23 21.5 27.5 16 29 C10.5 27.5 6 23 6 16 V10 Z" fill="currentColor" /></svg>
+        </span>
+        Admin
+      </RouterLink>
       <nav class="tb-console-nav" aria-label="관리 메뉴">
         <RouterLink to="/">대시보드</RouterLink>
         <span class="tb-console-nav-label">플랫폼</span>

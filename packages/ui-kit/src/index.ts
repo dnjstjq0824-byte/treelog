@@ -1,43 +1,44 @@
 export const colors = {
-  pine: {
-    50: '#eff7f1',
-    100: '#dcefe2',
-    200: '#bbdfc6',
-    300: '#8fc7a2',
-    400: '#5daa78',
-    500: '#3d8b5c',
-    600: '#2a7049',
-    700: '#235c3d',
-    800: '#1d4a32',
-    900: '#0e2e21'
+  blue: {
+    50: '#eef4ff',
+    100: '#dbe6fd',
+    200: '#bfd3fe',
+    300: '#93b4fd',
+    400: '#608dfa',
+    500: '#3b6ef6',
+    600: '#1d4ed8',
+    700: '#1e40af',
+    800: '#1e3a8a',
+    900: '#172e6e'
   },
-  clay: {
-    100: '#fbe9e2',
-    500: '#d0653f',
-    600: '#c2543b',
-    700: '#a0432d'
+  ink: {
+    400: '#8b98b0',
+    500: '#64748f',
+    600: '#40506a',
+    700: '#24344f',
+    900: '#101f38'
   },
   neutral: {
-    50: '#fafaf8',
-    100: '#f2f1ec',
-    200: '#e6e4dc',
-    300: '#d5d2c7',
-    400: '#a8a49a',
-    500: '#7c786e',
-    600: '#5f5b52',
-    700: '#4a4740',
-    800: '#34322d',
-    900: '#1e1d1a'
+    50: '#f6f8fb',
+    100: '#eef2f7',
+    200: '#e4e9f0',
+    300: '#c9d3e0',
+    400: '#9aa7bc',
+    500: '#64748f',
+    600: '#40506a',
+    700: '#24344f',
+    800: '#16233a',
+    900: '#101f38'
   }
 } as const
 
 export const theme = {
-  primary: colors.pine[600],
-  primaryStrong: colors.pine[700],
-  accent: colors.clay[600],
-  error: '#b3261e',
-  warning: '#b45309',
-  info: '#1d5bbf'
+  primary: colors.blue[600],
+  primaryStrong: colors.blue[700],
+  accent: colors.blue[600],
+  error: '#b42318',
+  warning: '#8a5a00',
+  info: colors.blue[600]
 } as const
 
 export function formatCount(value: number): string {

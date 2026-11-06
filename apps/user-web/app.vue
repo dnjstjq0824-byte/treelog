@@ -18,9 +18,4 @@
 
 <script setup lang="ts">
 const { toasts } = useToast()
-const { initialize } = useAuth()
-
-onMounted(() => {
-  initialize()
-})
 </script>

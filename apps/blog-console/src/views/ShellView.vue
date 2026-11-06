@@ -1,7 +1,12 @@
 <template>
   <div class="tb-console">
     <aside class="tb-console-side">
-      <RouterLink to="/" class="tb-console-brand">🌲 Studio</RouterLink>
+      <RouterLink to="/" class="tb-console-brand">
+        <span class="tb-console-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none"><path d="M16 5 L24 14 H19 V24 H13 V14 H8 Z" fill="currentColor" /></svg>
+        </span>
+        Studio
+      </RouterLink>
       <div v-if="blogStore.blogs.length > 0" class="tb-blog-switcher">
         <label class="tb-console-nav-label" for="blog-switch">블로그</label>
         <select id="blog-switch" :value="blogId" @change="switchBlog">

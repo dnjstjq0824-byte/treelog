@@ -15,7 +15,7 @@ export default defineNuxtConfig({
       title: 'TreeBlog - 생각이 자라는 곳',
       meta: [
         { name: 'description', content: 'TreeBlog는 깊이 있는 기록을 위한 독립 블로그 플랫폼입니다. 나만의 블로그를 만들고, 이웃과 구독으로 이어지세요.' },
-        { name: 'theme-color', content: '#0e2e21' },
+        { name: 'theme-color', content: '#ffffff' },
         { property: 'og:site_name', content: 'TreeBlog' },
         { property: 'og:type', content: 'website' },
         { name: 'twitter:card', content: 'summary' }

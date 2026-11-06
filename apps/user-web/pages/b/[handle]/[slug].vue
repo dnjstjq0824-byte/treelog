@@ -68,7 +68,7 @@
             :title="kind.label"
             @click="react(kind.id)"
           >
-            {{ kind.emoji }} {{ reactions.counts[kind.id] || 0 }}
+            {{ kind.label }} {{ reactions.counts[kind.id] || 0 }}
           </button>
         </div>
         <button class="tb-btn tb-btn-secondary tb-btn-sm" :disabled="bookmarkBusy" @click="toggleBookmark">
@@ -180,12 +180,12 @@ import type { Blog, BookmarkItem, CommentItem, PostDetail, ReactionSummary, Sear
 import { api } from '~/utils/api'
 
 const reactionKinds = [
-  { id: 'LIKE', label: '좋아요', emoji: '♥' },
-  { id: 'LOVE', label: '사랑해요', emoji: '💕' },
-  { id: 'HELPFUL', label: '유용해요', emoji: '👍' },
-  { id: 'FUNNY', label: '재밌어요', emoji: '😄' },
-  { id: 'TOUCHING', label: '감동이에요', emoji: '🥲' },
-  { id: 'INSIGHTFUL', label: '통찰적이에요', emoji: '💡' }
+  { id: 'LIKE', label: '좋아요' },
+  { id: 'LOVE', label: '사랑해요' },
+  { id: 'HELPFUL', label: '유용해요' },
+  { id: 'FUNNY', label: '재밌어요' },
+  { id: 'TOUCHING', label: '감동이에요' },
+  { id: 'INSIGHTFUL', label: '통찰적이에요' }
 ]
 
 const route = useRoute()
