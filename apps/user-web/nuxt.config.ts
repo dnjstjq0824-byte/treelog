@@ -1,6 +1,10 @@
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-01',
   devtools: { enabled: false },
+  nitro: {
+    // Docker serves the node build; Pages deploys set NITRO_PRESET=cloudflare-pages.
+    preset: process.env.NITRO_PRESET || 'node-server'
+  },
   css: ['@treeblog/ui-kit/tokens.css', '@treeblog/ui-kit/components.css', '~/assets/main.css'],
   runtimeConfig: {
     public: {
