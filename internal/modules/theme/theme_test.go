@@ -2,6 +2,8 @@ package theme
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -36,13 +38,14 @@ func TestSanitizeCSS(t *testing.T) {
 	}
 }
 
-func TestListThemes(t *testing.T) {
+func TestListThemesUnavailableWithoutPool(t *testing.T) {
 	svc := &Service{}
-	themes, err := svc.ListThemes(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := svc.ListThemes(context.Background())
+	var fault *Fault
+	if !errors.As(err, &fault) {
+		t.Fatalf("expected *Fault, got %T (%v)", err, err)
 	}
-	if len(themes) == 0 {
-		t.Fatalf("expected at least 1 theme in catalog")
+	if fault.Status != http.StatusServiceUnavailable || fault.Code != "SERVICE_UNAVAILABLE" {
+		t.Fatalf("expected 503 SERVICE_UNAVAILABLE, got %d %s", fault.Status, fault.Code)
 	}
 }

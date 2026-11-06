@@ -1,5 +1,8 @@
 .env
 *.env.local
+infra/dev/jwt_rsa
+infra/dev/*.pem
+infra/dev/*.key
 artifacts/evidence/
 node_modules/
 .nuxt/

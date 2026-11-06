@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/http"
 	"net/mail"
 	"regexp"
 	"strings"
@@ -44,6 +45,15 @@ type Service struct {
 	Mailer     VerificationMailer
 	CodePepper []byte
 	DummyHash  string
+	// OAuth holds per-provider client configs. A nil map disables social login.
+	OAuth map[OAuthProvider]OAuthClientConfig
+	// HTTPClient overrides the default SSRF-safe client (tests only).
+	HTTPClient *http.Client
+}
+
+// SetOAuthProviders installs social-login client configs.
+func (s *Service) SetOAuthProviders(configs map[OAuthProvider]OAuthClientConfig) {
+	s.OAuth = configs
 }
 
 type RegisterInput struct {
@@ -151,6 +161,10 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (string, er
 		VALUES($1,$2,NOW()+INTERVAL '10 minutes')`, userID, s.codeHash(userID, code)); err != nil {
 		return "", err
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO user_roles(user_id,role_id)
+		SELECT $1,id FROM roles WHERE code='USER'`, userID); err != nil {
+		return "", err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
@@ -215,6 +229,61 @@ func (s *Service) VerifyEmail(ctx context.Context, email, code string) error {
 	return tx.Commit(ctx)
 }
 
+// ResendVerification re-issues the email verification code for a pending
+// account. Resends are throttled to one per minute per account.
+func (s *Service) ResendVerification(ctx context.Context, email string) error {
+	email, err := normalizeEmail(email)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var userID, status string
+	err = tx.QueryRow(ctx, `SELECT id, status FROM users WHERE email = $1 FOR UPDATE`, email).Scan(&userID, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Do not disclose whether the email is registered.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if status != "PENDING_VERIFICATION" {
+		return nil
+	}
+	var lastSent time.Time
+	err = tx.QueryRow(ctx, `SELECT last_sent_at FROM email_verification_challenges
+		WHERE user_id = $1 FOR UPDATE`, userID).Scan(&lastSent)
+	if errors.Is(err, pgx.ErrNoRows) {
+		lastSent = time.Time{}
+	} else if err != nil {
+		return err
+	}
+	if !lastSent.IsZero() && time.Since(lastSent) < time.Minute {
+		return &Fault{Status: 429, Code: "RATE_LIMIT_EXCEEDED", Message: "Verification email was sent recently", RetryAfter: 60}
+	}
+	code, err := randomCode()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO email_verification_challenges (user_id, code_hash, expires_at, attempts, last_sent_at)
+		VALUES ($1, $2, NOW() + INTERVAL '10 minutes', 0, NOW())
+		ON CONFLICT (user_id) DO UPDATE SET code_hash = EXCLUDED.code_hash,
+			expires_at = EXCLUDED.expires_at, attempts = 0, last_sent_at = NOW()`,
+		userID, s.codeHash(userID, code)); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if err := s.Mailer.SendVerification(ctx, email, code); err != nil {
+		return fmt.Errorf("verification email delivery failed: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) Login(ctx context.Context, email, password string) (Tokens, error) {
 	email, err := normalizeEmail(email)
 	if err != nil {
@@ -271,13 +340,8 @@ func (s *Service) Login(ctx context.Context, email, password string) (Tokens, er
 	if status != "ACTIVE" {
 		return Tokens{}, &Fault{Status: 403, Code: "INSUFFICIENT_BLOG_ROLE", Message: "Account is not active"}
 	}
-	refresh, hash, err := randomToken()
+	refresh, sessionID, err := insertSessionTx(ctx, tx, userID)
 	if err != nil {
-		return Tokens{}, err
-	}
-	sessionID, familyID := uuid.NewString(), uuid.NewString()
-	if _, err := tx.Exec(ctx, `INSERT INTO sessions(id,user_id,refresh_token_hash,token_family_id,expires_at)
-		VALUES($1,$2,$3,$4,NOW()+INTERVAL '14 days')`, sessionID, userID, hash, familyID); err != nil {
 		return Tokens{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE login_attempts SET failed_count=0,locked_until=NULL,updated_at=NOW()
@@ -471,10 +535,14 @@ func (s *Service) SetupMFA(ctx context.Context, userID string) (string, []string
 	if err != nil {
 		return "", nil, err
 	}
+	sealed, err := EncryptMFASecret(s.CodePepper, secret)
+	if err != nil {
+		return "", nil, err
+	}
 
 	if _, err := s.DB.Exec(ctx, `UPDATE users
 		SET mfa_secret_enc=$2, mfa_backup_codes_hash=$3, updated_at=NOW()
-		WHERE id=$1`, userID, []byte(secret), string(hashJSON)); err != nil {
+		WHERE id=$1`, userID, sealed, string(hashJSON)); err != nil {
 		return "", nil, err
 	}
 	return secret, codes, nil
@@ -503,8 +571,12 @@ func (s *Service) VerifyMFASetup(ctx context.Context, userID, code string) error
 	if len(secretBytes) == 0 {
 		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "MFA setup has not been started"}
 	}
+	secret, err := DecryptMFASecret(s.CodePepper, secretBytes)
+	if err != nil {
+		return &Fault{Status: 500, Code: "MFA_SECRET_UNAVAILABLE", Message: "MFA secret cannot be decrypted"}
+	}
 
-	if !VerifyTOTP(string(secretBytes), code, time.Now()) {
+	if !VerifyTOTP(secret, code, time.Now()) {
 		return &Fault{Status: 400, Code: "INVALID_REQUEST_PAYLOAD", Message: "Invalid TOTP code"}
 	}
 
@@ -536,7 +608,9 @@ func (s *Service) DisableMFA(ctx context.Context, userID, code string) error {
 
 	ok := false
 	if len(code) == 6 && len(secretBytes) > 0 {
-		ok = VerifyTOTP(string(secretBytes), code, time.Now())
+		if secret, err := DecryptMFASecret(s.CodePepper, secretBytes); err == nil {
+			ok = VerifyTOTP(secret, code, time.Now())
+		}
 	}
 	if !ok && len(code) == 8 {
 		idx, err := VerifyBackupCode(code, backupJSON)

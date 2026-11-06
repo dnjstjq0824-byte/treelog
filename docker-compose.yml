@@ -98,6 +98,19 @@ services:
     environment:
       TREEBLOG_HTTP_ADDR: :8080
       TREEBLOG_DATABASE_URL: postgres://treeblog:${POSTGRES_PASSWORD}@postgres:5432/treeblog?sslmode=disable
+      TREEBLOG_JWT_PRIVATE_KEY_PATH: ${TREEBLOG_JWT_PRIVATE_KEY_PATH:?Set TREEBLOG_JWT_PRIVATE_KEY_PATH in .env}
+      TREEBLOG_JWT_ISSUER: ${TREEBLOG_JWT_ISSUER:-https://treeblog.local}
+      TREEBLOG_JWT_AUDIENCE: ${TREEBLOG_JWT_AUDIENCE:-treeblog-web}
+      TREEBLOG_CODE_PEPPER: ${TREEBLOG_CODE_PEPPER:?Set TREEBLOG_CODE_PEPPER in .env}
+      TREEBLOG_SMTP_HOST: mailpit
+      TREEBLOG_SMTP_PORT: "1025"
+      TREEBLOG_S3_ENDPOINT: http://minio:9000
+      TREEBLOG_S3_ACCESS_KEY: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      TREEBLOG_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      TREEBLOG_OPENSEARCH_URL: http://opensearch:9200
+      TREEBLOG_APP_BASE_URL: ${TREEBLOG_APP_BASE_URL:-http://localhost:3000}
+    volumes:
+      - ./infra/dev:/run/secrets/treeblog:ro
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -118,6 +131,13 @@ services:
     environment:
       TREEBLOG_DATABASE_URL: postgres://treeblog:${POSTGRES_PASSWORD}@postgres:5432/treeblog?sslmode=disable
       TREEBLOG_REDIS_URL: redis://redis:6379/0
+      TREEBLOG_SMTP_HOST: mailpit
+      TREEBLOG_SMTP_PORT: "1025"
+      TREEBLOG_S3_ENDPOINT: http://minio:9000
+      TREEBLOG_S3_ACCESS_KEY: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      TREEBLOG_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      TREEBLOG_OPENSEARCH_URL: http://opensearch:9200
+      TREEBLOG_APP_BASE_URL: ${TREEBLOG_APP_BASE_URL:-http://localhost:3000}
     depends_on:
       migrate:
         condition: service_completed_successfully

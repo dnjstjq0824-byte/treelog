@@ -8,11 +8,16 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
+    "@tosspayments/tosspayments-sdk": "^2.10.0",
+    "@treeblog/ui-kit": "workspace:*",
     "nuxt": "^3.17.5",
     "vue": "^3.5.18"
   },
   "devDependencies": {
+    "@vue/test-utils": "^2.5.1",
+    "happy-dom": "^21.0.4",
     "typescript": "^5.9.2",
+    "vitest": "^5.1.0",
     "vue-tsc": "^3.1.0"
   }
 }

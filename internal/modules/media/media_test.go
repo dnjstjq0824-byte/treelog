@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestVerifyMagicBytes(t *testing.T) {
@@ -54,5 +55,28 @@ func TestVideoEmbedParsing(t *testing.T) {
 				t.Fatalf("expected error for URL: %s", tt.url)
 			}
 		})
+	}
+}
+
+func TestMediaCursorRoundTrip(t *testing.T) {
+	moment := time.Date(2026, 5, 1, 12, 30, 0, 123456789, time.UTC)
+	cursor := encodeMediaCursor(moment, "550e8400-e29b-41d4-a716-446655440000")
+	backTime, backID, err := decodeMediaCursor(cursor)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !backTime.Equal(moment) || backID != "550e8400-e29b-41d4-a716-446655440000" {
+		t.Fatalf("round trip mismatch: %v %s", backTime, backID)
+	}
+	for _, bad := range []string{"", "!!!", "bm90LWEtdGltZXQ="} {
+		if _, _, err := decodeMediaCursor(bad); err == nil {
+			t.Fatalf("bad cursor %q accepted", bad)
+		}
+	}
+}
+
+func TestNewServiceRequiresPool(t *testing.T) {
+	if _, err := NewService(nil, StorageConfig{}); err == nil {
+		t.Fatalf("nil pool accepted")
 	}
 }

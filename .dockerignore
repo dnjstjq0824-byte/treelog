@@ -4,3 +4,10 @@ BN_TREEBLOG_MASTER_BLUEPRINT
 artifacts
 node_modules
 .env
+infra/dev
+**/node_modules
+**/.nuxt
+**/.output
+**/dist
+*.exe
+*.test

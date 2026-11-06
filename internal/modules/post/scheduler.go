@@ -3,6 +3,7 @@ package post
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -21,7 +22,7 @@ func NewScheduler(pool *pgxpool.Pool, logger *slog.Logger) *Scheduler {
 // ProcessScheduledPublications runs a batch scan for posts due for publication.
 func (s *Scheduler) ProcessScheduledPublications(ctx context.Context) (int, error) {
 	if s.pool == nil {
-		return 0, nil
+		return 0, errors.New("post scheduler requires a database pool")
 	}
 
 	rows, err := s.pool.Query(ctx, `

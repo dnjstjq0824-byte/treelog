@@ -1,9 +1,11 @@
 package identity
 
 import (
+	"crypto/hmac"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -28,11 +30,14 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Post("/register", h.handleRegister)
 		r.Post("/verify-email", h.handleVerifyEmail)
+		r.Post("/verify-email/resend", h.handleResendVerification)
 		r.Post("/login", h.handleLogin)
 		r.Post("/refresh", h.handleRefresh)
 		r.Post("/logout", h.handleLogout)
 		r.Post("/password/forgot", h.handleForgotPassword)
 		r.Post("/password/reset", h.handleResetPassword)
+		r.Get("/oauth/{provider}/login", h.handleOAuthLogin)
+		r.Get("/oauth/{provider}/callback", h.handleOAuthCallback)
 
 		r.Route("/mfa", func(r chi.Router) {
 			r.Use(RequireAuth)
@@ -271,6 +276,112 @@ func (h *Handler) handleMFADisable(w http.ResponseWriter, r *http.Request) {
 		"data": map[string]string{"message": "MFA disabled successfully"},
 		"request_id": httpserver.RequestID(r),
 	})
+}
+
+func (h *Handler) handleResendVerification(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpserver.WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Invalid request body")
+		return
+	}
+	if err := h.service.ResendVerification(r.Context(), req.Email); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]string{
+			"message": "If the account is pending verification, a new code has been sent.",
+		},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func parseOAuthProvider(raw string) (OAuthProvider, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "google":
+		return OAuthGoogle, true
+	case "apple":
+		return OAuthApple, true
+	case "github":
+		return OAuthGitHub, true
+	case "naver":
+		return OAuthNaver, true
+	case "kakao":
+		return OAuthKakao, true
+	case "treescan", "treescan_oidc":
+		return OAuthTreescanOIDC, true
+	default:
+		return "", false
+	}
+}
+
+func (h *Handler) handleOAuthLogin(w http.ResponseWriter, r *http.Request) {
+	provider, ok := parseOAuthProvider(chi.URLParam(r, "provider"))
+	if !ok {
+		httpserver.WriteError(w, r, http.StatusBadRequest, "UNKNOWN_OAUTH_PROVIDER", "Unknown OAuth provider")
+		return
+	}
+	authURL, signedState, err := h.service.OAuthLoginURL(provider,
+		r.URL.Query().Get("terms_version"), r.URL.Query().Get("privacy_version"))
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    signedState,
+		Path:     "/api/v1/auth/oauth/",
+		MaxAge:   600,
+		HttpOnly: true,
+		Secure:   isSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	provider, ok := parseOAuthProvider(chi.URLParam(r, "provider"))
+	if !ok {
+		httpserver.WriteError(w, r, http.StatusBadRequest, "UNKNOWN_OAUTH_PROVIDER", "Unknown OAuth provider")
+		return
+	}
+	appBase := "http://localhost:3000"
+	if cfg, configured := h.service.OAuthConfig(provider); configured && cfg.AppBaseURL != "" {
+		appBase = strings.TrimRight(cfg.AppBaseURL, "/")
+	}
+	fail := func(code string) {
+		target := appBase + "/oauth/callback?error=" + code
+		http.Redirect(w, r, target, http.StatusFound)
+	}
+	if providerErr := r.URL.Query().Get("error"); providerErr != "" {
+		fail("OAUTH_PROVIDER_DENIED")
+		return
+	}
+	queryState := r.URL.Query().Get("state")
+	cookie, err := r.Cookie("oauth_state")
+	if err != nil || cookie.Value == "" || !hmac.Equal([]byte(cookie.Value), []byte(queryState)) {
+		fail("INVALID_OAUTH_STATE")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: "oauth_state", Path: "/api/v1/auth/oauth/", MaxAge: -1})
+	tokens, err := h.service.OAuthCallback(r.Context(), provider, r.URL.Query().Get("code"), queryState)
+	if err != nil {
+		var fault *Fault
+		if errors.As(err, &fault) {
+			fail(fault.Code)
+			return
+		}
+		fail("OAUTH_FAILED")
+		return
+	}
+	setRefreshCookie(w, r, tokens.Refresh, 14*24*3600)
+	fragment := url.Values{}
+	fragment.Set("access_token", tokens.Access)
+	fragment.Set("expires_in", strconv.FormatInt(tokens.Expires, 10))
+	http.Redirect(w, r, appBase+"/oauth/callback#"+fragment.Encode(), http.StatusFound)
 }
 
 func setRefreshCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {

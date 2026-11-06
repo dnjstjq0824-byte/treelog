@@ -257,17 +257,7 @@ func (s *Service) PublishPost(ctx context.Context, blogID, postID, userID string
 	}
 
 	if s.pool == nil {
-		return &PostDetail{
-			ID:             postID,
-			BlogID:         blogID,
-			Title:          title,
-			Slug:           slug,
-			Status:         status,
-			Visibility:     visibility,
-			WordCount:      words,
-			ReadingTimeSec: readingTime,
-			PublishedAt:    publishedAt,
-		}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -435,13 +425,11 @@ func (s *Service) PublishPost(ctx context.Context, blogID, postID, userID string
 }
 
 func (s *Service) UnpublishPost(ctx context.Context, blogID, postID, userID string) error {
-	if s.pool != nil {
-		if _, err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
-			return err
-		}
-	}
 	if s.pool == nil {
-		return nil
+		return &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if _, err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -475,13 +463,11 @@ func (s *Service) UnpublishPost(ctx context.Context, blogID, postID, userID stri
 }
 
 func (s *Service) TrashPost(ctx context.Context, blogID, postID, userID string) error {
-	if s.pool != nil {
-		if _, err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
-			return err
-		}
-	}
 	if s.pool == nil {
-		return nil
+		return &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if _, err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -511,13 +497,11 @@ func (s *Service) TrashPost(ctx context.Context, blogID, postID, userID string) 
 }
 
 func (s *Service) RestorePost(ctx context.Context, blogID, postID, userID string) error {
-	if s.pool != nil {
-		if _, err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
-			return err
-		}
-	}
 	if s.pool == nil {
-		return nil
+		return &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if _, err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -545,7 +529,7 @@ func (s *Service) RestorePost(ctx context.Context, blogID, postID, userID string
 
 func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewerUserID string) (*PostDetail, error) {
 	if s.pool == nil {
-		return &PostDetail{Title: "Mock Post", Slug: slug, Status: "PUBLISHED"}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	// Resolve blogKey (could be UUID or handle)
@@ -561,7 +545,7 @@ func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewe
 	var p PostDetail
 	var categoryName, seriesTitle, authorAvatar *string
 	err = s.pool.QueryRow(ctx, `
-		SELECT p.id, p.blog_id, p.author_user_id, u.nickname, u.handle, up.avatar_url,
+		SELECT p.id, p.blog_id, p.author_user_id, COALESCE(up.display_name, u.email::text), COALESCE(up.username, ''), up.avatar_media_id::text,
 		       p.category_id, bc.name, p.series_id, s.title, p.series_order,
 		       p.slug, p.title, p.subtitle, p.content_json, p.content_html, p.content_plain,
 		       p.excerpt, p.cover_media_id, p.status, p.visibility, p.allow_comments,
@@ -602,23 +586,29 @@ func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewe
 	p.CategoryName = categoryName
 	p.SeriesTitle = seriesTitle
 	p.AuthorAvatarURL = authorAvatar
+	p.CoverImageURL = coverImageURL(p.CoverMediaID)
 
 	// Visibility permission check
 	if p.Visibility == "PRIVATE" && viewerUserID != p.AuthorUserID {
 		return nil, &Fault{Status: http.StatusForbidden, Code: "POST_PRIVATE", Message: "This post is private"}
 	}
 
-	// Paywall check: if paywall price > 0, check if purchased
-	if p.PaywallPriceMinor != nil && *p.PaywallPriceMinor > 0 && viewerUserID != p.AuthorUserID {
-		p.IsPaywalled = true
-		// Mask HTML content
-		runes := []rune(p.ContentPlain)
-		previewLength := 200
-		if len(runes) < previewLength {
-			previewLength = len(runes)
+	// Paywall check: mask paid content unless the viewer is entitled via a
+	// single-post unlock or an active blog membership.
+	if viewerUserID != p.AuthorUserID && (p.Visibility == "PAID_MEMBERS_ONLY" ||
+		(p.PaywallPriceMinor != nil && *p.PaywallPriceMinor > 0)) {
+		entitled := viewerUserID != "" && s.hasPaidAccess(ctx, viewerUserID, p.ID, p.BlogID)
+		if !entitled {
+			p.IsPaywalled = true
+			// Mask HTML content
+			runes := []rune(p.ContentPlain)
+			previewLength := 200
+			if len(runes) < previewLength {
+				previewLength = len(runes)
+			}
+			p.ContentHTML = fmt.Sprintf("<div class='paywall-preview'><p>%s</p><div class='paywall-notice'>유료 멤버십 또는 단건 결제 후 열람 가능한 콘텐츠입니다.</div></div>", string(runes[:previewLength]))
+			p.ContentJSON = json.RawMessage(`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"유료 콘텐츠입니다."}]}]}`)
 		}
-		p.ContentHTML = fmt.Sprintf("<div class='paywall-preview'><p>%s</p><div class='paywall-notice'>유료 멤버십 또는 단건 결제 후 열람 가능한 콘텐츠입니다.</div></div>", string(runes[:previewLength]))
-		p.ContentJSON = json.RawMessage(`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"유료 콘텐츠입니다."}]}]}`)
 	}
 
 	// Increment view count asynchronously
@@ -647,9 +637,24 @@ func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewe
 	return &p, nil
 }
 
+// hasPaidAccess reports whether a viewer unlocked a post directly or holds
+// an unexpired paid membership for the blog.
+func (s *Service) hasPaidAccess(ctx context.Context, viewerUserID, postID, blogID string) bool {
+	var entitled bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT TRUE FROM orders
+		WHERE buyer_user_id = $1 AND status = 'PAID'
+		  AND ((order_type = 'SINGLE_POST_UNLOCK' AND target_ref_id = $2)
+		    OR (order_type = 'MEMBERSHIP_SUB' AND recipient_blog_id = $3
+		        AND (access_expires_at IS NULL OR access_expires_at > NOW())))
+		LIMIT 1
+	`, viewerUserID, postID, blogID).Scan(&entitled)
+	return err == nil && entitled
+}
+
 func (s *Service) ListPublicPosts(ctx context.Context, blogKey string, categoryID, tag string, limit int, cursor string) ([]PostSummary, error) {
 	if s.pool == nil {
-		return []PostSummary{}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	var blogID string
@@ -666,11 +671,12 @@ func (s *Service) ListPublicPosts(ctx context.Context, blogKey string, categoryI
 	}
 
 	query := `
-		SELECT p.id, p.blog_id, p.author_user_id, u.nickname, p.slug, p.title, p.subtitle,
+		SELECT p.id, p.blog_id, p.author_user_id, COALESCE(up.display_name, u.email::text), p.slug, p.title, p.subtitle,
 		       p.excerpt, bc.name, p.status, p.visibility, p.word_count, p.reading_time_sec,
-		       p.view_count, p.reaction_count, p.comment_count, p.published_at, p.created_at
+		       p.view_count, p.reaction_count, p.comment_count, p.published_at, p.created_at, p.cover_media_id
 		FROM posts p
 		JOIN users u ON u.id = p.author_user_id
+		LEFT JOIN user_profiles up ON up.user_id = u.id
 		LEFT JOIN blog_categories bc ON bc.id = p.category_id
 		WHERE p.blog_id = $1 AND p.status = 'PUBLISHED' AND p.visibility = 'PUBLIC' AND p.trashed_at IS NULL
 	`
@@ -680,6 +686,13 @@ func (s *Service) ListPublicPosts(ctx context.Context, blogKey string, categoryI
 	if categoryID != "" {
 		query += fmt.Sprintf(" AND p.category_id = $%d", argIdx)
 		args = append(args, categoryID)
+		argIdx++
+	}
+
+	if tag != "" {
+		query += fmt.Sprintf(` AND EXISTS (SELECT 1 FROM post_tags pt JOIN tags t ON t.id = pt.tag_id
+			WHERE pt.post_id = p.id AND t.slug = $%d)`, argIdx)
+		args = append(args, tag)
 		argIdx++
 	}
 
@@ -696,15 +709,207 @@ func (s *Service) ListPublicPosts(ctx context.Context, blogKey string, categoryI
 	for rows.Next() {
 		var s PostSummary
 		var catName *string
+		var coverMediaID *string
 		if err := rows.Scan(
 			&s.ID, &s.BlogID, &s.AuthorUserID, &s.AuthorName, &s.Slug, &s.Title, &s.Subtitle,
 			&s.Excerpt, &catName, &s.Status, &s.Visibility, &s.WordCount, &s.ReadingTimeSec,
-			&s.ViewCount, &s.ReactionCount, &s.CommentCount, &s.PublishedAt, &s.CreatedAt,
+			&s.ViewCount, &s.ReactionCount, &s.CommentCount, &s.PublishedAt, &s.CreatedAt, &coverMediaID,
 		); err != nil {
 			return nil, err
 		}
 		s.CategoryName = catName
+		s.CoverImageURL = coverImageURL(coverMediaID)
 		list = append(list, s)
 	}
-	return list, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.fillSummaryTags(ctx, list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// ListManagePosts lists a blog's posts for authors, including drafts, with
+// offset paging and an optional status filter.
+func (s *Service) ListManagePosts(ctx context.Context, blogID, userID, status string, limit, offset int) ([]PostSummary, error) {
+	if s.pool == nil {
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if _, err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	status = strings.ToUpper(strings.TrimSpace(status))
+	query := `
+		SELECT p.id, p.blog_id, p.author_user_id, COALESCE(up.display_name, u.email::text), p.slug, p.title, p.subtitle,
+		       p.excerpt, bc.name, p.status, p.visibility, p.word_count, p.reading_time_sec,
+		       p.view_count, p.reaction_count, p.comment_count, p.published_at, p.created_at, p.cover_media_id
+		FROM posts p
+		JOIN users u ON u.id = p.author_user_id
+		LEFT JOIN user_profiles up ON up.user_id = u.id
+		LEFT JOIN blog_categories bc ON bc.id = p.category_id
+		WHERE p.blog_id = $1 AND p.trashed_at IS NULL
+	`
+	args := []any{blogID}
+	if status != "" {
+		switch status {
+		case "DRAFT", "IN_REVIEW", "SCHEDULED", "PUBLISHED", "UNPUBLISHED":
+		default:
+			return nil, &Fault{Status: http.StatusBadRequest, Code: "INVALID_STATUS", Message: "Unknown post status"}
+		}
+		query += " AND p.status = $2"
+		args = append(args, status)
+	}
+	query += fmt.Sprintf(" ORDER BY p.updated_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]PostSummary, 0)
+	for rows.Next() {
+		var s PostSummary
+		var catName *string
+		var coverMediaID *string
+		if err := rows.Scan(
+			&s.ID, &s.BlogID, &s.AuthorUserID, &s.AuthorName, &s.Slug, &s.Title, &s.Subtitle,
+			&s.Excerpt, &catName, &s.Status, &s.Visibility, &s.WordCount, &s.ReadingTimeSec,
+			&s.ViewCount, &s.ReactionCount, &s.CommentCount, &s.PublishedAt, &s.CreatedAt, &coverMediaID,
+		); err != nil {
+			return nil, err
+		}
+		s.CategoryName = catName
+		s.CoverImageURL = coverImageURL(coverMediaID)
+		list = append(list, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.fillSummaryTags(ctx, list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// GetManagePost returns a single post with full content for the editor.
+// Authors see drafts and paywalled bodies without masking.
+func (s *Service) GetManagePost(ctx context.Context, blogID, postID, userID string) (*PostDetail, error) {
+	if s.pool == nil {
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if _, err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return nil, err
+	}
+	var p PostDetail
+	var categoryName, seriesTitle, authorAvatar *string
+	err := s.pool.QueryRow(ctx, `
+		SELECT p.id, p.blog_id, p.author_user_id, COALESCE(up.display_name, u.email::text), COALESCE(up.username, ''), up.avatar_media_id::text,
+		       p.category_id, bc.name, p.series_id, s.title, p.series_order,
+		       p.slug, p.title, p.subtitle, p.content_json, p.content_html, p.content_plain,
+		       p.excerpt, p.cover_media_id, p.status, p.visibility, p.allow_comments,
+		       p.allow_reactions, p.is_notice, p.is_pinned, p.seo_title, p.seo_description,
+		       p.canonical_url, p.license_type, p.ai_disclosure_level, p.paywall_price_minor,
+		       p.word_count, p.reading_time_sec, p.view_count, p.reaction_count, p.comment_count,
+		       p.bookmark_count, p.revision_no, p.published_at, p.created_at, p.updated_at
+		FROM posts p
+		JOIN users u ON u.id = p.author_user_id
+		LEFT JOIN user_profiles up ON up.user_id = u.id
+		LEFT JOIN blog_categories bc ON bc.id = p.category_id
+		LEFT JOIN series s ON s.id = p.series_id
+		WHERE p.blog_id = $1 AND p.id = $2 AND p.trashed_at IS NULL
+	`, blogID, postID).Scan(
+		&p.ID, &p.BlogID, &p.AuthorUserID, &p.AuthorName, &p.AuthorHandle, &authorAvatar,
+		&p.CategoryID, &categoryName, &p.SeriesID, &seriesTitle, &p.SeriesOrder,
+		&p.Slug, &p.Title, &p.Subtitle, &p.ContentJSON, &p.ContentHTML, &p.ContentPlain,
+		&p.Excerpt, &p.CoverMediaID, &p.Status, &p.Visibility, &p.AllowComments,
+		&p.AllowReactions, &p.IsNotice, &p.IsPinned, &p.SEOTitle, &p.SEODescription,
+		&p.CanonicalURL, &p.LicenseType, &p.AIDisclosureLevel, &p.PaywallPriceMinor,
+		&p.WordCount, &p.ReadingTimeSec, &p.ViewCount, &p.ReactionCount, &p.CommentCount,
+		&p.BookmarkCount, &p.RevisionNo, &p.PublishedAt, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, &Fault{Status: http.StatusNotFound, Code: "POST_NOT_FOUND", Message: "Post not found"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.CategoryName = categoryName
+	p.SeriesTitle = seriesTitle
+	p.AuthorAvatarURL = authorAvatar
+	p.CoverImageURL = coverImageURL(p.CoverMediaID)
+	p.Tags = []string{}
+	tagRows, err := s.pool.Query(ctx, `
+		SELECT t.name FROM tags t
+		JOIN post_tags pt ON pt.tag_id = t.id
+		WHERE pt.post_id = $1
+		ORDER BY pt.sort_order ASC
+	`, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer tagRows.Close()
+	for tagRows.Next() {
+		var name string
+		if err := tagRows.Scan(&name); err != nil {
+			return nil, err
+		}
+		p.Tags = append(p.Tags, name)
+	}
+	if err := tagRows.Err(); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// coverImageURL resolves a cover media id to its public delivery URL.
+func coverImageURL(coverMediaID *string) *string {
+	if coverMediaID == nil || *coverMediaID == "" {
+		return nil
+	}
+	url := "/api/v1/public/media/" + *coverMediaID
+	return &url
+}
+
+// fillSummaryTags hydrates tag names for listed posts in one query.
+func (s *Service) fillSummaryTags(ctx context.Context, list []PostSummary) error {
+	if len(list) == 0 {
+		return nil
+	}
+	if s.pool == nil {
+		return &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	ids := make([]string, 0, len(list))
+	byID := make(map[string]*PostSummary, len(list))
+	for i := range list {
+		ids = append(ids, list[i].ID)
+		byID[list[i].ID] = &list[i]
+		list[i].Tags = []string{}
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT pt.post_id, t.name
+		FROM post_tags pt JOIN tags t ON t.id = pt.tag_id
+		WHERE pt.post_id = ANY($1)
+		ORDER BY pt.sort_order ASC
+	`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var postID, name string
+		if err := rows.Scan(&postID, &name); err != nil {
+			return err
+		}
+		if item, ok := byID[postID]; ok {
+			item.Tags = append(item.Tags, name)
+		}
+	}
+	return rows.Err()
 }

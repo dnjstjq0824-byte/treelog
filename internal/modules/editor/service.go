@@ -112,10 +112,11 @@ func (s *Service) CheckAuthorRole(ctx context.Context, blogID, userID string) er
 }
 
 func (s *Service) CreateDraft(ctx context.Context, blogID, userID string, input CreateDraftInput) (map[string]any, error) {
-	if s.pool != nil {
-		if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
-			return nil, err
-		}
+	if s.pool == nil {
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return nil, err
 	}
 
 	title := strings.TrimSpace(input.Title)
@@ -130,16 +131,6 @@ func (s *Service) CreateDraft(ctx context.Context, blogID, userID string, input 
 
 	// Generate initial temporary slug
 	slug := fmt.Sprintf("draft-%d", time.Now().UnixNano())
-
-	if s.pool == nil {
-		return map[string]any{
-			"id":          "draft-mock-id",
-			"blog_id":     blogID,
-			"title":       title,
-			"status":      "DRAFT",
-			"revision_no": 1,
-		}, nil
-	}
 
 	var postID string
 	var revNo int
@@ -168,14 +159,11 @@ func (s *Service) CreateDraft(ctx context.Context, blogID, userID string, input 
 }
 
 func (s *Service) AutosaveDraft(ctx context.Context, blogID, postID, userID string, input AutosaveInput) (map[string]any, error) {
-	if s.pool != nil {
-		if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
-			return nil, err
-		}
-	}
-
 	if s.pool == nil {
-		return map[string]any{"saved": true, "post_id": postID}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return nil, err
 	}
 
 	// Check post exists and check optimistic locking
@@ -241,14 +229,11 @@ func (s *Service) AutosaveDraft(ctx context.Context, blogID, postID, userID stri
 }
 
 func (s *Service) ListRevisions(ctx context.Context, blogID, postID, userID string) ([]RevisionSummary, error) {
-	if s.pool != nil {
-		if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
-			return nil, err
-		}
-	}
-
 	if s.pool == nil {
-		return []RevisionSummary{}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return nil, err
 	}
 
 	rows, err := s.pool.Query(ctx, `
@@ -278,14 +263,11 @@ func (s *Service) ListRevisions(ctx context.Context, blogID, postID, userID stri
 }
 
 func (s *Service) RestoreRevision(ctx context.Context, blogID, postID, revisionID, userID string) (*RevisionDetail, error) {
-	if s.pool != nil {
-		if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
-			return nil, err
-		}
-	}
-
 	if s.pool == nil {
-		return &RevisionDetail{}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -434,53 +416,16 @@ func (s *Service) FetchLinkPreview(ctx context.Context, rawURL string) (*LinkPre
 
 func (s *Service) ConvertMarkdown(ctx context.Context, input MarkdownConvertInput) (map[string]any, error) {
 	if strings.ToUpper(input.Direction) == "TO_MARKDOWN" {
-		// Mock/Basic AST to Markdown conversion
+		markdown, err := TiptapToMarkdown(input.AST)
+		if err != nil {
+			return nil, &Fault{Status: http.StatusBadRequest, Code: "INVALID_AST_PAYLOAD", Message: err.Error()}
+		}
 		return map[string]any{
-			"markdown": "# Converted Document\n\nContent rendered from Tiptap AST.",
+			"markdown": markdown,
 		}, nil
 	}
 
-	// Default: TO_AST (Markdown to Tiptap JSON AST)
-	lines := strings.Split(input.Markdown, "\n")
-	contentNodes := make([]map[string]any, 0)
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "# ") {
-			contentNodes = append(contentNodes, map[string]any{
-				"type":  "heading",
-				"attrs": map[string]any{"level": 1},
-				"content": []map[string]any{
-					{"type": "text", "text": strings.TrimPrefix(trimmed, "# ")},
-				},
-			})
-		} else if strings.HasPrefix(trimmed, "## ") {
-			contentNodes = append(contentNodes, map[string]any{
-				"type":  "heading",
-				"attrs": map[string]any{"level": 2},
-				"content": []map[string]any{
-					{"type": "text", "text": strings.TrimPrefix(trimmed, "## ")},
-				},
-			})
-		} else {
-			contentNodes = append(contentNodes, map[string]any{
-				"type": "paragraph",
-				"content": []map[string]any{
-					{"type": "text", "text": trimmed},
-				},
-			})
-		}
-	}
-
-	astDoc := map[string]any{
-		"type":    "doc",
-		"content": contentNodes,
-	}
-
 	return map[string]any{
-		"ast": astDoc,
+		"ast": MarkdownToTiptap(input.Markdown),
 	}, nil
 }

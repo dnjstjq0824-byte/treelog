@@ -8,6 +8,23 @@
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit"
   },
-  "dependencies": { "vue": "^3.5.18", "pinia": "^3.0.3" },
-  "devDependencies": { "@vitejs/plugin-vue": "^6.0.1", "typescript": "^5.9.2", "vite": "^7.0.6", "vue-tsc": "^3.1.0" }
+  "dependencies": {
+    "@tiptap/extension-image": "^3.32.3",
+    "@tiptap/extension-link": "^3.32.3",
+    "@tiptap/extension-placeholder": "^3.32.3",
+    "@tiptap/starter-kit": "^3.32.3",
+    "@tiptap/vue-3": "^3.32.3",
+    "@treeblog/ui-kit": "workspace:*",
+    "pinia": "^3.0.3",
+    "vue": "^3.5.18",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "happy-dom": "^21.0.4",
+    "typescript": "^5.9.2",
+    "vite": "^7.0.6",
+    "vitest": "^5.1.0",
+    "vue-tsc": "^3.1.0"
+  }
 }

@@ -32,9 +32,17 @@ func (h *Handler) Mount(r chi.Router) {
 	})
 
 	// Authenticated post publishing & management routes
+	r.Route("/api/v1/blogs/{blogId}/posts", func(r chi.Router) {
+		r.Use(identity.RequireAuth)
+
+		r.Get("/", h.handleListManagePosts)
+	})
+
+	// Authenticated post publishing & management routes
 	r.Route("/api/v1/blogs/{blogId}/posts/{postId}", func(r chi.Router) {
 		r.Use(identity.RequireAuth)
 
+		r.Get("/", h.handleGetManagePost)
 		r.Post("/publish", h.handlePublishPost)
 		r.Post("/unpublish", h.handleUnpublishPost)
 		r.Post("/restore", h.handleRestorePost)
@@ -54,6 +62,52 @@ func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error)
 		return
 	}
 	httpserver.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error")
+}
+
+func (h *Handler) handleListManagePosts(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	blogID := chi.URLParam(r, "blogId")
+
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	posts, err := h.service.ListManagePosts(r.Context(), blogID, user.UserID, r.URL.Query().Get("status"), limit, offset)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       posts,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleGetManagePost(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	blogID := chi.URLParam(r, "blogId")
+	postID := chi.URLParam(r, "postId")
+
+	post, err := h.service.GetManagePost(r.Context(), blogID, postID, user.UserID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       post,
+		"request_id": httpserver.RequestID(r),
+	})
 }
 
 func (h *Handler) handlePublishPost(w http.ResponseWriter, r *http.Request) {

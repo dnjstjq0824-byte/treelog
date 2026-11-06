@@ -35,6 +35,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Patch("/{assetId}", h.handleUpdateMediaMetadata)
 		r.Post("/video-embed", h.handleCreateVideoEmbed)
 	})
+	r.Get("/api/v1/public/media/{assetId}", h.handlePublicMedia)
 }
 
 func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error) {
@@ -105,16 +106,34 @@ func (h *Handler) handleListMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	cursor := r.URL.Query().Get("cursor")
 
-	assets, err := h.service.ListMedia(r.Context(), blogID, user.UserID, limit, cursor)
+	assets, nextCursor, err := h.service.ListMedia(r.Context(), blogID, user.UserID, limit, cursor)
 	if err != nil {
 		h.handleError(w, r, err)
 		return
 	}
 
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
-		"data":       assets,
-		"request_id": httpserver.RequestID(r),
+		"data":        assets,
+		"next_cursor": nextCursor,
+		"request_id":  httpserver.RequestID(r),
 	})
+}
+
+func (h *Handler) handlePublicMedia(w http.ResponseWriter, r *http.Request) {
+	assetID := chi.URLParam(r, "assetId")
+	variant := r.URL.Query().Get("variant")
+
+	bucket, key, _, err := h.service.PublicObject(r.Context(), assetID, variant)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	target, err := h.service.PresignDelivery(bucket, key)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func (h *Handler) handleUpdateMediaMetadata(w http.ResponseWriter, r *http.Request) {

@@ -100,17 +100,7 @@ func (s *Service) CheckAdminRole(ctx context.Context, blogID, userID string) err
 
 func (s *Service) ListThemes(ctx context.Context) ([]ThemeCatalogItem, error) {
 	if s.pool == nil {
-		return []ThemeCatalogItem{
-			{
-				ID:          "mock-classic-theme",
-				Slug:        "classic-blog",
-				Name:        "Classic TreeBlog",
-				Description: "Official clean classic blog theme",
-				LayoutType:  "CLASSIC_BLOG",
-				Version:     "1.0.0",
-				IsActive:    true,
-			},
-		}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	rows, err := s.pool.Query(ctx, `
@@ -140,16 +130,7 @@ func (s *Service) ListThemes(ctx context.Context) ([]ThemeCatalogItem, error) {
 
 func (s *Service) GetBlogTheme(ctx context.Context, blogID string) (*BlogThemeConfig, error) {
 	if s.pool == nil {
-		return &BlogThemeConfig{
-			BlogID:             blogID,
-			ThemeID:            "mock-classic-theme",
-			ThemeSlug:          "classic-blog",
-			ThemeName:          "Classic TreeBlog",
-			ActiveLayout:       "CLASSIC_BLOG",
-			ColorPaletteTokens: json.RawMessage(`{}`),
-			TypographyTokens:   json.RawMessage(`{}`),
-			DarkModePreference: "AUTO",
-		}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	var cfg BlogThemeConfig
@@ -176,22 +157,16 @@ func (s *Service) GetBlogTheme(ctx context.Context, blogID string) (*BlogThemeCo
 }
 
 func (s *Service) UpdateBlogTheme(ctx context.Context, blogID, userID string, input UpdateBlogThemeInput) (*BlogThemeConfig, error) {
-	if s.pool != nil {
-		if err := s.CheckAdminRole(ctx, blogID, userID); err != nil {
-			return nil, err
-		}
+	if s.pool == nil {
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if err := s.CheckAdminRole(ctx, blogID, userID); err != nil {
+		return nil, err
 	}
 
 	sanitizedCSS := ""
 	if input.CustomCSS != nil {
 		sanitizedCSS = SanitizeCSS(*input.CustomCSS)
-	}
-
-	if s.pool == nil {
-		return &BlogThemeConfig{
-			BlogID:    blogID,
-			CustomCSS: sanitizedCSS,
-		}, nil
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -260,13 +235,11 @@ func (s *Service) UpdateBlogTheme(ctx context.Context, blogID, userID string, in
 }
 
 func (s *Service) ResetBlogTheme(ctx context.Context, blogID, userID string) (*BlogThemeConfig, error) {
-	if s.pool != nil {
-		if err := s.CheckAdminRole(ctx, blogID, userID); err != nil {
-			return nil, err
-		}
-	}
 	if s.pool == nil {
-		return &BlogThemeConfig{BlogID: blogID}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if err := s.CheckAdminRole(ctx, blogID, userID); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -279,7 +252,7 @@ func (s *Service) ResetBlogTheme(ctx context.Context, blogID, userID string) (*B
 	var defaultThemeID string
 	var defaultLayout string
 	var defaultTokens json.RawMessage
-	err = tx.QueryRow(ctx, `SELECT id, layout_type, default_tokens_json FROM themes WHERE slug = 'classic-blog' OR is_active = TRUE LIMIT 1`).Scan(&defaultThemeID, &defaultLayout, &defaultTokens)
+	err = tx.QueryRow(ctx, `SELECT id, layout_type, default_tokens_json FROM themes WHERE is_active = TRUE ORDER BY (slug = 'forest-editorial') DESC, created_at ASC LIMIT 1`).Scan(&defaultThemeID, &defaultLayout, &defaultTokens)
 	if err != nil {
 		return nil, err
 	}

@@ -15,8 +15,9 @@ See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for work-order status
 
 1. Install Go 1.23+, Node 24+, pnpm 12, and a Docker-compatible container runtime.
 2. Copy `.env.example` to `.env` and replace every placeholder credential. If the PostgreSQL password contains URL-special characters, percent-encode it for the `TREEBLOG_DATABASE_URL` values in Compose.
-3. Run `docker compose up --build` to start local services and apply the first two migrations.
-4. Run `pnpm install`, `pnpm typecheck`, and `pnpm build` for the frontend workspaces.
-5. Run `go vet ./...`, `go test ./...`, and `go build ./...` for Go.
+3. Generate local-only secrets with `./infra/dev/generate-keys.sh` (or `infra/dev/generate-keys.ps1` on Windows) and paste the printed `TREEBLOG_CODE_PEPPER` into `.env`.
+4. Run `docker compose up --build` to start local services and apply the first two migrations.
+5. Run `pnpm install`, `pnpm typecheck`, and `pnpm build` for the frontend workspaces.
+6. Run `go vet ./...`, `go test ./...`, and `go build ./...` for Go.
 
 The Go migration command can also be run directly with `TREEBLOG_DATABASE_URL` set: `go run ./cmd/migrate up`. `down-one` reverts only the latest applied migration; use it only against a disposable development database.

@@ -23,6 +23,23 @@ type Server struct {
 	HTTP *http.Server
 }
 
+// Option customizes server construction.
+type Option func(*options)
+
+type options struct {
+	global []func(http.Handler) http.Handler
+}
+
+// WithGlobalMiddleware appends middleware applied outside the router, in the
+// order given: the first middleware is the outermost. It is the single place
+// where production cross-cutting concerns (security headers, rate limiting,
+// CSRF, authentication) are wired.
+func WithGlobalMiddleware(mw ...func(http.Handler) http.Handler) Option {
+	return func(o *options) {
+		o.global = append(o.global, mw...)
+	}
+}
+
 type contextKey int
 
 const requestIDKey contextKey = iota
@@ -63,15 +80,22 @@ func recoverErrors(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-func New(addr string, modules []Module, ready ReadinessCheck, logger *slog.Logger) (*Server, error) {
+func New(addr string, modules []Module, ready ReadinessCheck, logger *slog.Logger, opts ...Option) (*Server, error) {
 	if ready == nil {
 		return nil, errors.New("readiness check is required")
 	}
 	if logger == nil {
 		return nil, errors.New("logger is required")
 	}
+	var cfg options
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	metrics := NewMetrics()
 	r := chi.NewRouter()
-	r.Use(withRequestID, recoverErrors(logger))
+	r.Use(withRequestID, recoverErrors(logger), metrics.Middleware)
 	r.Get("/api/v1/health/live", func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]string{"status": "live"}, "request_id": requestID(req)})
 	})
@@ -82,6 +106,9 @@ func New(addr string, modules []Module, ready ReadinessCheck, logger *slog.Logge
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]string{"status": "ready"}, "request_id": requestID(req)})
+	})
+	r.Get("/api/v1/health/metrics", func(w http.ResponseWriter, req *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"data": metrics.Snapshot(), "request_id": requestID(req)})
 	})
 	names := make(map[string]struct{}, len(modules))
 	for _, module := range modules {
@@ -100,8 +127,14 @@ func New(addr string, modules []Module, ready ReadinessCheck, logger *slog.Logge
 	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
 		writeError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 	})
+	var handler http.Handler = r
+	for i := len(cfg.global) - 1; i >= 0; i-- {
+		if cfg.global[i] != nil {
+			handler = cfg.global[i](handler)
+		}
+	}
 	return &Server{HTTP: &http.Server{
-		Addr: addr, Handler: r, ReadHeaderTimeout: 5 * time.Second,
+		Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20,
 	}}, nil
 }

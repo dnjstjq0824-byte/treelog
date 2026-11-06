@@ -1,0 +1,20 @@
+# TreeBlog user-web (Nuxt SSR) production image.
+FROM node:24-alpine AS build
+RUN corepack enable && corepack prepare pnpm@12.14.0 --activate
+WORKDIR /app
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages ./packages
+COPY apps/user-web ./apps/user-web
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @treeblog/user-web build
+
+FROM node:24-alpine
+ENV NODE_ENV=production
+ENV NUXT_HOST=0.0.0.0
+ENV NUXT_PORT=3000
+WORKDIR /app
+COPY --from=build /app/apps/user-web/.output ./.output
+USER node:node
+EXPOSE 3000
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 CMD wget -q -O- http://127.0.0.1:3000/ || exit 1
+ENTRYPOINT ["node", ".output/server/index.mjs"]

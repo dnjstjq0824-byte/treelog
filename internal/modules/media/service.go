@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +17,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"treeblog/internal/platform/s3"
 )
 
 type Fault struct {
@@ -92,18 +96,50 @@ type MediaVariant struct {
 
 type Service struct {
 	pool        *pgxpool.Pool
-	cdnBaseURL  string
+	s3          *s3.Client
 	s3BucketRaw string
 	s3BucketPub string
 }
 
-func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{
-		pool:        pool,
-		cdnBaseURL:  "https://cdn.treeblog.net",
-		s3BucketRaw: "treeblog-raw-private",
-		s3BucketPub: "treeblog-media-public",
+// StorageConfig wires object storage into the media service. An empty
+// access key leaves storage unconfigured; upload methods then fail with a
+// 501 fault instead of returning unusable URLs.
+type StorageConfig struct {
+	S3           s3.Config
+	BucketRaw    string
+	BucketPublic string
+}
+
+func NewService(pool *pgxpool.Pool, storage StorageConfig) (*Service, error) {
+	if pool == nil {
+		return nil, errors.New("media service requires a database pool")
 	}
+	svc := &Service{
+		pool:        pool,
+		s3BucketRaw: storage.BucketRaw,
+		s3BucketPub: storage.BucketPublic,
+	}
+	if svc.s3BucketRaw == "" {
+		svc.s3BucketRaw = "treeblog-raw-private"
+	}
+	if svc.s3BucketPub == "" {
+		svc.s3BucketPub = "treeblog-media-public"
+	}
+	if storage.S3.AccessKey != "" {
+		client, err := s3.New(storage.S3)
+		if err != nil {
+			return nil, err
+		}
+		svc.s3 = client
+	}
+	return svc, nil
+}
+
+func (s *Service) requireStorage() error {
+	if s == nil || s.s3 == nil {
+		return &Fault{Status: http.StatusNotImplemented, Code: "STORAGE_NOT_CONFIGURED", Message: "Object storage is not configured"}
+	}
+	return nil
 }
 
 var allowedMimeTypes = map[string]int64{
@@ -229,7 +265,13 @@ func (s *Service) CreateUploadSession(ctx context.Context, blogID, userID string
 		return nil, err
 	}
 
-	presignedURL := fmt.Sprintf("https://%s.s3.amazonaws.com/%s?upload_session=%s", s.s3BucketRaw, storageKey, sessionID)
+	if err := s.requireStorage(); err != nil {
+		return nil, err
+	}
+	presignedURL, err := s.s3.PresignPUT(s.s3BucketRaw, storageKey, mime, 30*time.Minute)
+	if err != nil {
+		return nil, err
+	}
 
 	return &UploadSessionResponse{
 		SessionID:        sessionID,
@@ -242,6 +284,12 @@ func (s *Service) CreateUploadSession(ctx context.Context, blogID, userID string
 }
 
 func (s *Service) CompleteUpload(ctx context.Context, blogID, sessionID, userID string, rawData []byte) (*MediaAsset, error) {
+	if s.pool == nil {
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if err := s.requireStorage(); err != nil {
+		return nil, err
+	}
 	if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
 		return nil, err
 	}
@@ -287,36 +335,48 @@ func (s *Service) CompleteUpload(ctx context.Context, blogID, sessionID, userID 
 		}
 	}
 
+	// Verify the object actually landed in storage with the declared size.
+	storedSize, err := s.s3.Head(ctx, sess.StorageBucket, sess.StorageObjectKey)
+	if err != nil {
+		return nil, &Fault{Status: http.StatusBadRequest, Code: "UPLOAD_NOT_FOUND", Message: "Uploaded object was not found in storage; upload it before completing"}
+	}
+	if storedSize != sess.ExpectedSizeBytes {
+		_, _ = s.pool.Exec(ctx, `UPDATE upload_sessions SET status = 'ABORTED' WHERE id = $1`, sess.ID)
+		return nil, &Fault{Status: http.StatusBadRequest, Code: "UPLOAD_SIZE_MISMATCH", Message: "Stored object size does not match the declared size"}
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
 
-	// Create media asset
+	// Create the media asset in PROCESSING state. Dimensions, EXIF
+	// stripping, and variants are produced asynchronously by the worker
+	// after byte-level verification.
 	mediaType := "IMAGE"
+	jobType := "IMAGE_OPTIMIZE_AND_STRIP_EXIF"
 	if sess.MimeType == "image/gif" {
 		mediaType = "ANIMATED_GIF"
+		jobType = "GIF_TO_MP4"
 	}
-	defaultW, defaultH := 1920, 1080
-	blurhash := "L6Pj0^jE.AyE_3t7t7R**0o#DgR4"
 
 	var asset MediaAsset
 	err = tx.QueryRow(ctx, `
 		INSERT INTO media_assets (
 			blog_id, uploader_user_id, upload_session_id, media_type, mime_type,
-			original_size_bytes, sha256_hash, width, height, blurhash,
+			original_size_bytes, sha256_hash,
 			exif_stripped, virus_scan_status, status
 		) VALUES (
 			$1, $2, $3, $4, $5,
-			$6, $7, $8, $9, $10,
-			TRUE, 'CLEAN', 'READY'
+			$6, $7,
+			FALSE, 'PENDING', 'PROCESSING'
 		)
 		RETURNING id, blog_id, uploader_user_id, upload_session_id, media_type, mime_type,
 		          original_size_bytes, sha256_hash, width, height, blurhash, alt_text, caption,
 		          exif_stripped, status, created_at, updated_at
 	`, blogID, userID, sess.ID, mediaType, sess.MimeType,
-		sess.ExpectedSizeBytes, sess.SHA256Hash, defaultW, defaultH, blurhash,
+		sess.ExpectedSizeBytes, sess.SHA256Hash,
 	).Scan(
 		&asset.ID, &asset.BlogID, &asset.UploaderUserID, &asset.UploadSessionID, &asset.MediaType, &asset.MimeType,
 		&asset.OriginalSizeBytes, &asset.SHA256Hash, &asset.Width, &asset.Height, &asset.Blurhash,
@@ -326,43 +386,20 @@ func (s *Service) CompleteUpload(ctx context.Context, blogID, sessionID, userID 
 		return nil, err
 	}
 
-	// Insert standard variants (THUMB_400, W320, W640, W1200, W1920)
-	type variantDef struct {
-		Name   string
-		Format string
-		Width  int
-		Height int
-		Ratio  float64
+	// Queue asynchronous verification and optimization. The worker
+	// produces real dimensions, EXIF stripping, and variants.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO media_processing_jobs (media_asset_id, job_type, status)
+		VALUES ($1, $2, 'QUEUED')
+	`, asset.ID, jobType); err != nil {
+		return nil, err
 	}
-	defs := []variantDef{
-		{Name: "THUMB_400", Format: "WEBP", Width: 400, Height: 400, Ratio: 0.15},
-		{Name: "W320", Format: "WEBP", Width: 320, Height: 180, Ratio: 0.1},
-		{Name: "W640", Format: "WEBP", Width: 640, Height: 360, Ratio: 0.25},
-		{Name: "W1200", Format: "WEBP", Width: 1200, Height: 675, Ratio: 0.5},
-		{Name: "W1920", Format: "AVIF", Width: 1920, Height: 1080, Ratio: 0.75},
-	}
-
-	for _, d := range defs {
-		vSize := int64(float64(sess.ExpectedSizeBytes) * d.Ratio)
-		if vSize <= 0 {
-			vSize = 1024
-		}
-		cdnURL := fmt.Sprintf("%s/media/%s/%s.%s", s.cdnBaseURL, asset.ID, strings.ToLower(d.Name), strings.ToLower(d.Format))
-		_, err = tx.Exec(ctx, `
-			INSERT INTO media_variants (media_asset_id, variant_name, format, width, height, size_bytes, public_cdn_url)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, asset.ID, d.Name, d.Format, d.Width, d.Height, vSize, cdnURL)
-		if err != nil {
-			return nil, err
-		}
-		asset.Variants = append(asset.Variants, MediaVariant{
-			VariantName:  d.Name,
-			Format:       d.Format,
-			Width:        d.Width,
-			Height:       d.Height,
-			SizeBytes:    vSize,
-			PublicCDNURL: cdnURL,
-		})
+	processPayload, _ := json.Marshal(map[string]any{"asset_id": asset.ID, "blog_id": blogID})
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload_json, idempotency_key)
+		VALUES ('MEDIA', $1, 'media.process', $2, 'evt-media-process-' || $1)
+	`, asset.ID, processPayload); err != nil {
+		return nil, err
 	}
 
 	// Update upload_sessions to COMPLETED
@@ -377,9 +414,12 @@ func (s *Service) CompleteUpload(ctx context.Context, blogID, sessionID, userID 
 	return &asset, nil
 }
 
-func (s *Service) ListMedia(ctx context.Context, blogID, userID string, limit int, cursor string) ([]MediaAsset, error) {
+func (s *Service) ListMedia(ctx context.Context, blogID, userID string, limit int, cursor string) ([]MediaAsset, string, error) {
+	if s.pool == nil {
+		return nil, "", &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
 	if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	if limit <= 0 || limit > 100 {
@@ -392,16 +432,26 @@ func (s *Service) ListMedia(ctx context.Context, blogID, userID string, limit in
 		       embed_provider, embed_external_id, embed_html_sanitized, exif_stripped, status, created_at, updated_at
 		FROM media_assets
 		WHERE blog_id = $1 AND status = 'READY'
-		ORDER BY created_at DESC
-		LIMIT $2
 	`
-	rows, err := s.pool.Query(ctx, query, blogID, limit)
+	args := []any{blogID}
+	if cursor != "" {
+		cursorTime, cursorID, err := decodeMediaCursor(cursor)
+		if err != nil {
+			return nil, "", &Fault{Status: http.StatusBadRequest, Code: "INVALID_CURSOR", Message: "Invalid pagination cursor"}
+		}
+		query += ` AND (created_at, id) < ($2, $3)`
+		args = append(args, cursorTime, cursorID)
+	}
+	query += fmt.Sprintf(` ORDER BY created_at DESC, id DESC LIMIT $%d`, len(args)+1)
+	args = append(args, limit+1)
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 
-	assets := make([]MediaAsset, 0)
+	assets := make([]MediaAsset, 0, limit)
 	for rows.Next() {
 		var a MediaAsset
 		if err := rows.Scan(
@@ -409,11 +459,91 @@ func (s *Service) ListMedia(ctx context.Context, blogID, userID string, limit in
 			&a.OriginalSizeBytes, &a.SHA256Hash, &a.Width, &a.Height, &a.Blurhash, &a.AltText, &a.Caption,
 			&a.EmbedProvider, &a.EmbedExternalID, &a.EmbedHTMLSanitized, &a.ExifStripped, &a.Status, &a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		assets = append(assets, a)
 	}
-	return assets, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	nextCursor := ""
+	if len(assets) > limit {
+		last := assets[limit-1]
+		assets = assets[:limit]
+		nextCursor = encodeMediaCursor(last.CreatedAt, last.ID)
+	}
+	return assets, nextCursor, nil
+}
+
+func encodeMediaCursor(createdAt time.Time, id string) string {
+	raw := createdAt.UTC().Format(time.RFC3339Nano) + "|" + id
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+func decodeMediaCursor(cursor string) (time.Time, string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	parts := strings.SplitN(string(raw), "|", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return time.Time{}, "", errors.New("invalid cursor shape")
+	}
+	moment, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	return moment, parts[1], nil
+}
+
+// PublicObject resolves a READY asset (or one of its variants) to the
+// storage bucket and key backing it, for presigned delivery.
+func (s *Service) PublicObject(ctx context.Context, assetID, variant string) (bucket, key, contentType string, err error) {
+	if s.pool == nil {
+		return "", "", "", &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if err := s.requireStorage(); err != nil {
+		return "", "", "", err
+	}
+	var mimeType, status string
+	err = s.pool.QueryRow(ctx, `SELECT mime_type, status FROM media_assets WHERE id = $1`, assetID).Scan(&mimeType, &status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", "", &Fault{Status: http.StatusNotFound, Code: "MEDIA_NOT_FOUND", Message: "Media asset not found"}
+		}
+		return "", "", "", err
+	}
+	if status != "READY" {
+		return "", "", "", &Fault{Status: http.StatusConflict, Code: "MEDIA_NOT_READY", Message: "Media asset is still processing"}
+	}
+	if variant != "" {
+		var exists bool
+		err = s.pool.QueryRow(ctx, `SELECT TRUE FROM media_variants
+			WHERE media_asset_id = $1 AND variant_name = $2`, assetID, strings.ToUpper(variant)).Scan(&exists)
+		if err != nil || !exists {
+			return "", "", "", &Fault{Status: http.StatusNotFound, Code: "VARIANT_NOT_FOUND", Message: "Media variant not found"}
+		}
+		return s.s3BucketPub, fmt.Sprintf("variants/%s/%s.jpg", assetID, strings.ToLower(variant)), "image/jpeg", nil
+	}
+	var bucketOut, keyOut string
+	err = s.pool.QueryRow(ctx, `
+		SELECT us.storage_bucket, us.storage_object_key
+		FROM media_assets a
+		JOIN upload_sessions us ON us.id = a.upload_session_id
+		WHERE a.id = $1
+	`, assetID).Scan(&bucketOut, &keyOut)
+	if err != nil {
+		return "", "", "", &Fault{Status: http.StatusNotFound, Code: "MEDIA_OBJECT_NOT_FOUND", Message: "Media object not found"}
+	}
+	return bucketOut, keyOut, mimeType, nil
+}
+
+// PresignDelivery returns a short-lived download URL for a resolved object.
+func (s *Service) PresignDelivery(bucket, key string) (string, error) {
+	if err := s.requireStorage(); err != nil {
+		return "", err
+	}
+	return s.s3.PresignGET(bucket, key, 5*time.Minute)
 }
 
 func (s *Service) UpdateMediaMetadata(ctx context.Context, blogID, assetID, userID string, input UpdateMediaAssetInput) (*MediaAsset, error) {

@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&family=Noto+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@500;600;700&display=swap');
+
+/* TreeBlog design tokens: Modern Editorial. Shared by user-web and consoles. */
+:root {
+  /* Primary: pine */
+  --tb-pine-50: #eff7f1;
+  --tb-pine-100: #dcefe2;
+  --tb-pine-200: #bbdfc6;
+  --tb-pine-300: #8fc7a2;
+  --tb-pine-400: #5daa78;
+  --tb-pine-500: #3d8b5c;
+  --tb-pine-600: #2a7049;
+  --tb-pine-700: #235c3d;
+  --tb-pine-800: #1d4a32;
+  --tb-pine-900: #0e2e21;
+
+  /* Accent: clay (used sparingly) */
+  --tb-clay-100: #fbe9e2;
+  --tb-clay-500: #d0653f;
+  --tb-clay-600: #c2543b;
+  --tb-clay-700: #a0432d;
+
+  /* Neutral: warm gray */
+  --tb-neutral-50: #fafaf8;
+  --tb-neutral-100: #f2f1ec;
+  --tb-neutral-200: #e6e4dc;
+  --tb-neutral-300: #d5d2c7;
+  --tb-neutral-400: #a8a49a;
+  --tb-neutral-500: #7c786e;
+  --tb-neutral-600: #5f5b52;
+  --tb-neutral-700: #4a4740;
+  --tb-neutral-800: #34322d;
+  --tb-neutral-900: #1e1d1a;
+
+  /* Semantic */
+  --tb-primary: var(--tb-pine-600);
+  --tb-primary-strong: var(--tb-pine-700);
+  --tb-primary-soft: var(--tb-pine-50);
+  --tb-on-primary: #ffffff;
+  --tb-success: #2a7049;
+  --tb-warning: #b45309;
+  --tb-warning-soft: #fef3e2;
+  --tb-error: #b3261e;
+  --tb-error-soft: #fdecea;
+  --tb-info: #1d5bbf;
+  --tb-info-soft: #e8f0fd;
+
+  /* Surfaces */
+  --tb-bg: #ffffff;
+  --tb-bg-subtle: var(--tb-neutral-50);
+  --tb-bg-muted: var(--tb-neutral-100);
+  --tb-surface: #ffffff;
+  --tb-border: var(--tb-neutral-200);
+  --tb-border-strong: var(--tb-neutral-300);
+
+  /* Text */
+  --tb-text: var(--tb-neutral-900);
+  --tb-text-secondary: var(--tb-neutral-600);
+  --tb-text-muted: var(--tb-neutral-500);
+
+  /* Type */
+  --tb-font-sans: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', -apple-system, 'Segoe UI', sans-serif;
+  --tb-font-display: 'Newsreader', 'Noto Serif KR', Georgia, serif;
+  --tb-font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, monospace;
+
+  /* Radii */
+  --tb-radius-sm: 6px;
+  --tb-radius-md: 10px;
+  --tb-radius-lg: 14px;
+  --tb-radius-xl: 20px;
+  --tb-radius-full: 999px;
+
+  /* Shadows */
+  --tb-shadow-sm: 0 1px 2px rgba(30, 29, 26, 0.06);
+  --tb-shadow-md: 0 2px 8px rgba(30, 29, 26, 0.08), 0 1px 2px rgba(30, 29, 26, 0.06);
+  --tb-shadow-lg: 0 12px 32px rgba(30, 29, 26, 0.12), 0 2px 6px rgba(30, 29, 26, 0.06);
+
+  /* Motion */
+  --tb-motion-fast: 120ms ease-out;
+  --tb-motion-base: 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --tb-motion-fast: 0ms;
+    --tb-motion-base: 0ms;
+  }
+}

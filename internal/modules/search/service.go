@@ -9,7 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"treeblog/internal/platform/opensearch"
 )
 
 type Fault struct {
@@ -69,11 +72,14 @@ type ClickEventInput struct {
 }
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	opensearch  *opensearch.Client
 }
 
-func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+// NewService builds a search service. A nil OpenSearch client disables
+// ranked retrieval and every query uses the SQL fallback.
+func NewService(pool *pgxpool.Pool, osClient *opensearch.Client) *Service {
+	return &Service{pool: pool, opensearch: osClient}
 }
 
 // ComputeSimHash64 computes a 64-bit SimHash of text for near-duplicate content detection.
@@ -128,15 +134,7 @@ func (s *Service) SearchPosts(ctx context.Context, query, blogScopeID string, li
 	}
 
 	if s.pool == nil {
-		return []SearchPostItem{
-			{
-				ID:        "mock-post-1",
-				Title:     "검색 결과: " + query,
-				Excerpt:   "TreeBlog 고성능 검색 엔진 테스트 문서",
-				BlogTitle: "테스트 블로그",
-				Tags:      []string{"기술", "Go"},
-			},
-		}, 1, nil
+		return nil, 0, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	// Update search_queries count asynchronously
@@ -149,13 +147,70 @@ func (s *Service) SearchPosts(ctx context.Context, query, blogScopeID string, li
 		`, strings.ToLower(q))
 	}(query)
 
-	sql := `
-		SELECT p.id, p.blog_id, b.title, b.handle, u.nickname, p.slug, p.title, p.subtitle,
+	if s.opensearch.Enabled() {
+		if ranked, total, err := s.searchPostsRanked(ctx, query, blogScopeID, limit, offset); err == nil {
+			return ranked, total, nil
+		}
+		// Ranked retrieval failed; fall through to the SQL fallback so
+		// search stays available during an OpenSearch outage.
+	}
+	return s.searchPostsSQL(ctx, query, blogScopeID, limit, offset)
+}
+
+// searchPostsRanked resolves ranked IDs from OpenSearch and hydrates them
+// from PostgreSQL, preserving rank order.
+func (s *Service) searchPostsRanked(ctx context.Context, query, blogScopeID string, limit, offset int) ([]SearchPostItem, int, error) {
+	hits, total, err := s.opensearch.SearchPosts(ctx, query, blogScopeID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(hits) == 0 {
+		return []SearchPostItem{}, total, nil
+	}
+	ids := make([]string, 0, len(hits))
+	scores := make(map[string]float64, len(hits))
+	for _, hit := range hits {
+		ids = append(ids, hit.ID)
+		scores[hit.ID] = hit.Score
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT p.id, p.blog_id, b.title, b.handle, COALESCE(up.display_name, u.email::text), p.slug, p.title, p.subtitle,
 		       p.excerpt, bc.name, p.word_count, p.reading_time_sec, p.view_count,
-		       p.reaction_count, p.comment_count, p.published_at
+		       p.reaction_count, p.comment_count, p.published_at, p.cover_media_id
 		FROM posts p
 		JOIN blogs b ON b.id = p.blog_id
 		JOIN users u ON u.id = p.author_user_id
+		LEFT JOIN user_profiles up ON up.user_id = u.id
+		LEFT JOIN blog_categories bc ON bc.id = p.category_id
+		WHERE p.id = ANY($1) AND p.status = 'PUBLISHED' AND p.visibility = 'PUBLIC' AND p.trashed_at IS NULL
+		ORDER BY array_position($1::uuid[], p.id)
+	`, ids)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	results, err := scanPostItems(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	for i := range results {
+		results[i].Score = scores[results[i].ID]
+	}
+	if err := s.fillTags(ctx, results); err != nil {
+		return nil, 0, err
+	}
+	return results, total, nil
+}
+
+func (s *Service) searchPostsSQL(ctx context.Context, query, blogScopeID string, limit, offset int) ([]SearchPostItem, int, error) {
+	sql := `
+		SELECT p.id, p.blog_id, b.title, b.handle, COALESCE(up.display_name, u.email::text), p.slug, p.title, p.subtitle,
+		       p.excerpt, bc.name, p.word_count, p.reading_time_sec, p.view_count,
+		       p.reaction_count, p.comment_count, p.published_at, p.cover_media_id
+		FROM posts p
+		JOIN blogs b ON b.id = p.blog_id
+		JOIN users u ON u.id = p.author_user_id
+		LEFT JOIN user_profiles up ON up.user_id = u.id
 		LEFT JOIN blog_categories bc ON bc.id = p.category_id
 		WHERE p.status = 'PUBLISHED' AND p.visibility = 'PUBLIC' AND p.trashed_at IS NULL
 		  AND (p.title ILIKE '%' || $1 || '%' OR p.content_plain ILIKE '%' || $1 || '%' OR p.subtitle ILIKE '%' || $1 || '%')
@@ -178,23 +233,81 @@ func (s *Service) SearchPosts(ctx context.Context, query, blogScopeID string, li
 	}
 	defer rows.Close()
 
+	results, err := scanPostItems(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := s.fillTags(ctx, results); err != nil {
+		return nil, 0, err
+	}
+	return results, len(results), nil
+}
+
+func scanPostItems(rows pgx.Rows) ([]SearchPostItem, error) {
 	results := make([]SearchPostItem, 0)
 	for rows.Next() {
 		var item SearchPostItem
 		var catName *string
+		var coverMediaID *string
 		if err := rows.Scan(
 			&item.ID, &item.BlogID, &item.BlogTitle, &item.BlogHandle, &item.AuthorName,
 			&item.Slug, &item.Title, &item.Subtitle, &item.Excerpt, &catName,
 			&item.WordCount, &item.ReadingTimeSec, &item.ViewCount,
-			&item.ReactionCount, &item.CommentCount, &item.PublishedAt,
+			&item.ReactionCount, &item.CommentCount, &item.PublishedAt, &coverMediaID,
 		); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		item.CategoryName = catName
+		item.CoverImageURL = coverImageURL(coverMediaID)
 		results = append(results, item)
 	}
+	return results, rows.Err()
+}
 
-	return results, len(results), rows.Err()
+// coverImageURL resolves a cover media id to its public delivery URL.
+func coverImageURL(coverMediaID *string) *string {
+	if coverMediaID == nil || *coverMediaID == "" {
+		return nil
+	}
+	url := "/api/v1/public/media/" + *coverMediaID
+	return &url
+}
+
+// fillTags hydrates tag names for listed posts in one query.
+func (s *Service) fillTags(ctx context.Context, items []SearchPostItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	if s.pool == nil {
+		return &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	ids := make([]string, 0, len(items))
+	byID := make(map[string]*SearchPostItem, len(items))
+	for i := range items {
+		ids = append(ids, items[i].ID)
+		byID[items[i].ID] = &items[i]
+		items[i].Tags = []string{}
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT pt.post_id, t.name
+		FROM post_tags pt JOIN tags t ON t.id = pt.tag_id
+		WHERE pt.post_id = ANY($1)
+		ORDER BY pt.sort_order ASC
+	`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var postID, name string
+		if err := rows.Scan(&postID, &name); err != nil {
+			return err
+		}
+		if item, ok := byID[postID]; ok {
+			item.Tags = append(item.Tags, name)
+		}
+	}
+	return rows.Err()
 }
 
 func (s *Service) SearchBlogs(ctx context.Context, query string, limit int) ([]SearchBlogItem, error) {
@@ -207,9 +320,7 @@ func (s *Service) SearchBlogs(ctx context.Context, query string, limit int) ([]S
 	}
 
 	if s.pool == nil {
-		return []SearchBlogItem{
-			{ID: "mock-blog", Handle: "tech", Title: "Tech Blog", Description: "Official tech blog"},
-		}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	rows, err := s.pool.Query(ctx, `
@@ -243,9 +354,7 @@ func (s *Service) SearchTags(ctx context.Context, query string, limit int) ([]Se
 	}
 
 	if s.pool == nil {
-		return []SearchTagItem{
-			{ID: "tag-1", Name: "Go", Slug: "go", PostCount: 42},
-		}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	sql := `SELECT id, name, slug, post_count FROM tags WHERE 1=1`
@@ -287,7 +396,7 @@ func (s *Service) Suggest(ctx context.Context, prefix string, limit int) ([]stri
 	}
 
 	if s.pool == nil {
-		return []string{prefix + " 튜토리얼", prefix + " 예제"}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	rows, err := s.pool.Query(ctx, `
@@ -308,12 +417,12 @@ func (s *Service) Suggest(ctx context.Context, prefix string, limit int) ([]stri
 			suggestions = append(suggestions, q)
 		}
 	}
-	return suggestions, nil
+	return suggestions, rows.Err()
 }
 
 func (s *Service) LogClickEvent(ctx context.Context, input ClickEventInput) error {
 	if s.pool == nil {
-		return nil
+		return &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 	if input.QueryText == "" || input.ClickedPostID == "" || input.RankPosition <= 0 {
 		return &Fault{Status: http.StatusBadRequest, Code: "INVALID_CLICK_EVENT", Message: "Missing required click event fields"}
@@ -337,17 +446,18 @@ func (s *Service) GetTrendingPosts(ctx context.Context, limit int) ([]SearchPost
 		limit = 10
 	}
 	if s.pool == nil {
-		return []SearchPostItem{
-			{ID: "trend-1", Title: "실시간 인기 글", Excerpt: "이번 주 가장 인기 있는 글입니다."},
-		}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT p.id, p.blog_id, b.title, b.handle, u.nickname, p.slug, p.title, p.subtitle,
-		       p.excerpt, p.view_count, p.reaction_count, p.comment_count, p.published_at
+		SELECT p.id, p.blog_id, b.title, b.handle, COALESCE(up.display_name, u.email::text), p.slug, p.title, p.subtitle,
+		       p.excerpt, bc.name, p.word_count, p.reading_time_sec, p.view_count,
+		       p.reaction_count, p.comment_count, p.published_at, p.cover_media_id
 		FROM posts p
 		JOIN blogs b ON b.id = p.blog_id
 		JOIN users u ON u.id = p.author_user_id
+		LEFT JOIN user_profiles up ON up.user_id = u.id
+		LEFT JOIN blog_categories bc ON bc.id = p.category_id
 		WHERE p.status = 'PUBLISHED' AND p.visibility = 'PUBLIC' AND p.trashed_at IS NULL
 		  AND p.published_at >= NOW() - INTERVAL '7 days'
 		ORDER BY (p.view_count + p.reaction_count * 5 + p.comment_count * 10) DESC
@@ -358,19 +468,14 @@ func (s *Service) GetTrendingPosts(ctx context.Context, limit int) ([]SearchPost
 	}
 	defer rows.Close()
 
-	list := make([]SearchPostItem, 0)
-	for rows.Next() {
-		var item SearchPostItem
-		if err := rows.Scan(
-			&item.ID, &item.BlogID, &item.BlogTitle, &item.BlogHandle, &item.AuthorName,
-			&item.Slug, &item.Title, &item.Subtitle, &item.Excerpt,
-			&item.ViewCount, &item.ReactionCount, &item.CommentCount, &item.PublishedAt,
-		); err != nil {
-			return nil, err
-		}
-		list = append(list, item)
+	list, err := scanPostItems(rows)
+	if err != nil {
+		return nil, err
 	}
-	return list, rows.Err()
+	if err := s.fillTags(ctx, list); err != nil {
+		return nil, err
+	}
+	return list, nil
 }
 
 func (s *Service) GetPopularBlogs(ctx context.Context, limit int) ([]SearchBlogItem, error) {
@@ -378,9 +483,7 @@ func (s *Service) GetPopularBlogs(ctx context.Context, limit int) ([]SearchBlogI
 		limit = 10
 	}
 	if s.pool == nil {
-		return []SearchBlogItem{
-			{ID: "pop-blog", Handle: "best", Title: "우수 추천 블로그", PostCount: 120},
-		}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	rows, err := s.pool.Query(ctx, `
@@ -411,7 +514,7 @@ func (s *Service) GetRelatedPosts(ctx context.Context, postID string, limit int)
 		limit = 5
 	}
 	if s.pool == nil {
-		return []SearchPostItem{}, nil
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
 
 	var blogID string
@@ -422,11 +525,14 @@ func (s *Service) GetRelatedPosts(ctx context.Context, postID string, limit int)
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT p.id, p.blog_id, b.title, b.handle, u.nickname, p.slug, p.title, p.subtitle,
-		       p.excerpt, p.view_count, p.reaction_count, p.comment_count, p.published_at
+		SELECT p.id, p.blog_id, b.title, b.handle, COALESCE(up.display_name, u.email::text), p.slug, p.title, p.subtitle,
+		       p.excerpt, bc.name, p.word_count, p.reading_time_sec, p.view_count,
+		       p.reaction_count, p.comment_count, p.published_at, p.cover_media_id
 		FROM posts p
 		JOIN blogs b ON b.id = p.blog_id
 		JOIN users u ON u.id = p.author_user_id
+		LEFT JOIN user_profiles up ON up.user_id = u.id
+		LEFT JOIN blog_categories bc ON bc.id = p.category_id
 		WHERE p.blog_id = $1 AND p.id <> $2 AND p.status = 'PUBLISHED' AND p.visibility = 'PUBLIC' AND p.trashed_at IS NULL
 		  AND ($3::uuid IS NULL OR p.category_id = $3)
 		ORDER BY p.published_at DESC
@@ -437,17 +543,12 @@ func (s *Service) GetRelatedPosts(ctx context.Context, postID string, limit int)
 	}
 	defer rows.Close()
 
-	list := make([]SearchPostItem, 0)
-	for rows.Next() {
-		var item SearchPostItem
-		if err := rows.Scan(
-			&item.ID, &item.BlogID, &item.BlogTitle, &item.BlogHandle, &item.AuthorName,
-			&item.Slug, &item.Title, &item.Subtitle, &item.Excerpt,
-			&item.ViewCount, &item.ReactionCount, &item.CommentCount, &item.PublishedAt,
-		); err != nil {
-			return nil, err
-		}
-		list = append(list, item)
+	list, err := scanPostItems(rows)
+	if err != nil {
+		return nil, err
 	}
-	return list, rows.Err()
+	if err := s.fillTags(ctx, list); err != nil {
+		return nil, err
+	}
+	return list, nil
 }
