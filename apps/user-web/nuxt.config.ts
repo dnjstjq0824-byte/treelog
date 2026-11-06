@@ -4,9 +4,9 @@ export default defineNuxtConfig({
   css: ['@treeblog/ui-kit/tokens.css', '@treeblog/ui-kit/components.css', '~/assets/main.css'],
   runtimeConfig: {
     public: {
-      apiBase: 'http://localhost:8080',
-      consoleUrl: 'http://localhost:5173',
-      adminUrl: 'http://localhost:5174'
+      apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:8080',
+      consoleUrl: process.env.NUXT_PUBLIC_CONSOLE_URL || 'http://localhost:5173',
+      adminUrl: process.env.NUXT_PUBLIC_ADMIN_URL || 'http://localhost:5174'
     }
   },
   app: {
