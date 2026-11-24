@@ -12,7 +12,9 @@
       <div class="tb-console-head">
         <h1 class="tb-console-title">{{ isNew ? '새 글 쓰기' : '글 편집' }}</h1>
         <div style="display: flex; gap: 8px; align-items: center">
-          <span class="tb-hint">{{ saveState }}</span>
+          <span v-if="!online" class="tb-badge">오프라인</span>
+          <span v-if="restoredOffline" class="tb-badge">로컬 초안</span>
+          <span class="tb-hint">{{ saveState }} · {{ wordCount.toLocaleString() }}단어</span>
           <button class="tb-btn tb-btn-secondary tb-btn-sm" :disabled="publishing" @click="saveNow">
             저장
           </button>
@@ -64,6 +66,15 @@
             <button @click="insertLink">링크</button>
             <button :disabled="uploading" @click="pickImage">{{ uploading ? '업로드 중…' : '이미지' }}</button>
             <button @click="editor.chain().focus().setHorizontalRule().run()">구분선</button>
+            <button @click="editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()">표</button>
+            <template v-if="editor.isActive('table')">
+              <button @click="editor.chain().focus().addRowAfter().run()">행+</button>
+              <button @click="editor.chain().focus().addColumnAfter().run()">열+</button>
+              <button @click="editor.chain().focus().deleteRow().run()">행-</button>
+              <button @click="editor.chain().focus().deleteColumn().run()">열-</button>
+              <button @click="editor.chain().focus().toggleHeaderRow().run()">헤더</button>
+              <button @click="editor.chain().focus().deleteTable().run()">표삭제</button>
+            </template>
             <input
               ref="fileInput"
               type="file"
@@ -151,6 +162,10 @@
               </option>
             </select>
           </div>
+          <div v-if="publish.visibility === 'PROTECTED'" class="tb-field">
+            <label class="tb-label" for="pub-password">보호 비밀번호 (4~128자, 비우면 기존 유지)</label>
+            <input id="pub-password" v-model="publish.protection_password" class="tb-input" type="password" maxlength="128" autocomplete="new-password" />
+          </div>
           <div class="tb-field">
             <label class="tb-label" for="pub-comments">댓글 정책</label>
             <select id="pub-comments" v-model="publish.allow_comments" class="tb-select">
@@ -215,8 +230,11 @@
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import StarterKit from '@tiptap/starter-kit'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
+import { summarizeDocument, validateDocument } from '@treeblog/editor-core'
+import { createDraftStore, shouldRestoreLocal, type LocalDraft } from '../lib/drafts'
 import { formatDateTime } from '@treeblog/ui-kit'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -267,6 +285,7 @@ const publish = ref({
   slug: '',
   category_id: null as string | null,
   visibility: 'PUBLIC',
+  protection_password: '',
   allow_comments: 'ALL_ALLOWED',
   excerpt: '',
   license_type: 'ALL_RIGHTS_RESERVED',
@@ -283,19 +302,76 @@ const editor = useEditor({
     StarterKit,
     Image.configure({ inline: false }),
     Link.configure({ openOnClick: false }),
-    Placeholder.configure({ placeholder: '이야기를 시작하세요…' })
+    Placeholder.configure({ placeholder: '이야기를 시작하세요…' }),
+    Table.configure({ resizable: true }),
+    TableRow,
+    TableHeader,
+    TableCell
   ],
   content: { type: 'doc', content: [] },
-  onUpdate: () => scheduleSave()
+  onUpdate: () => {
+    refreshWordCount()
+    scheduleSave()
+  }
 })
 
+const wordCount = ref(0)
+
+function refreshWordCount(): void {
+  if (!editor.value) return
+  wordCount.value = summarizeDocument(editor.value.getJSON() as never).words
+}
+
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+const draftStore = createDraftStore()
+const online = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
+const restoredOffline = ref(false)
+const lastServerSave = ref<string | null>(null)
+let lastLocalSave = 0
+
+function cacheLocally(): void {
+  if (!postId.value || !editor.value) return
+  const now = Date.now()
+  if (now - lastLocalSave < 1000) return
+  lastLocalSave = now
+  void draftStore
+    .save({
+      postId: postId.value,
+      blogId: blogId.value,
+      title: title.value,
+      subtitle: subtitle.value,
+      content: editor.value.getJSON(),
+      clientTime: new Date().toISOString(),
+      serverRevisionNo: baseRevision.value
+    })
+    .catch(() => {
+      // The local cache is best-effort; server autosave stays authoritative.
+    })
+}
 
 function scheduleSave(): void {
   if (!postId.value || conflict.value) return
-  saveState.value = '편집 중…'
+  saveState.value = online.value ? '편집 중…' : '오프라인 편집 중…'
+  cacheLocally()
+  if (!online.value) return
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => void saveNow(), 2000)
+}
+
+function handleOnline(): void {
+  online.value = true
+  if (postId.value && !conflict.value) void saveNow()
+}
+
+function handleOffline(): void {
+  online.value = false
+  saveState.value = '오프라인 - 로컬에 저장 중'
+}
+
+function currentDocIssues(): string[] {
+  if (!editor.value) return []
+  const result = validateDocument(editor.value.getJSON() as never)
+  return result.issues.map((issue) => `${issue.path}: ${issue.message}`)
 }
 
 async function saveNow(): Promise<void> {
@@ -304,19 +380,29 @@ async function saveNow(): Promise<void> {
     clearTimeout(saveTimer)
     saveTimer = null
   }
+  const issues = currentDocIssues()
+  if (issues.length > 0) {
+    saveState.value = '검증 실패'
+    toast.push(`저장할 수 없는 블록: ${issues[0]}`, 'error')
+    return
+  }
   saveState.value = '저장 중…'
   try {
-    await api(`/api/v1/blogs/${blogId.value}/posts/${postId.value}/autosave`, {
-      method: 'PUT',
-      body: {
-        base_revision_no: baseRevision.value,
-        title: title.value,
-        subtitle: subtitle.value,
-        content_json: editor.value.getJSON(),
-        client_time: new Date().toISOString()
+    const saved = await api<{ saved: boolean; post_id: string; server_saved_at: string }>(
+      `/api/v1/blogs/${blogId.value}/posts/${postId.value}/autosave`,
+      {
+        method: 'PUT',
+        body: {
+          base_revision_no: baseRevision.value,
+          title: title.value,
+          subtitle: subtitle.value,
+          content_json: editor.value.getJSON(),
+          client_time: new Date().toISOString()
+        }
       }
-    })
+    )
     baseRevision.value += 1
+    lastServerSave.value = saved.server_saved_at
     saveState.value = `저장됨 ${new Date().toLocaleTimeString('ko-KR')}`
   } catch (err) {
     if (err instanceof ApiError && err.status === 409 && err.data) {
@@ -454,6 +540,11 @@ async function publishNow(): Promise<void> {
     toast.push('제목을 입력하세요', 'error')
     return
   }
+  const issues = currentDocIssues()
+  if (issues.length > 0) {
+    toast.push(`발행할 수 없는 블록: ${issues[0]}`, 'error')
+    return
+  }
   publishing.value = true
   try {
     await api(`/api/v1/blogs/${blogId.value}/posts/${postId.value}/publish`, {
@@ -469,6 +560,7 @@ async function publishNow(): Promise<void> {
         excerpt: publish.value.excerpt.trim() || undefined,
         tags: parseTags(),
         visibility: publish.value.visibility,
+        protection_password: publish.value.visibility === 'PROTECTED' && publish.value.protection_password ? publish.value.protection_password : undefined,
         allow_comments: publish.value.allow_comments,
         allow_reactions: publish.value.allow_reactions,
         is_notice: publish.value.is_notice,
@@ -480,6 +572,7 @@ async function publishNow(): Promise<void> {
       }
     })
     toast.push('발행했습니다', 'success')
+    if (postId.value) await draftStore.clear(postId.value).catch(() => undefined)
     await router.push(`/b/${blogId.value}/posts`)
   } catch (err) {
     toast.push(friendlyMessage(err), 'error')
@@ -522,18 +615,52 @@ onMounted(async () => {
       publish.value.is_notice = post.is_notice
       publish.value.is_pinned = post.is_pinned
       editor.value?.commands.setContent((post.content_json || { type: 'doc', content: [] }) as never)
+      refreshWordCount()
+      lastServerSave.value = post.updated_at
       await loadRevisions()
+      await restoreLocalDraft(false)
     }
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
   } catch (err) {
-    failed.value = true
-    toast.push(friendlyMessage(err), 'error')
+    const recovered = await restoreLocalDraft(true)
+    if (!recovered) {
+      failed.value = true
+      toast.push(friendlyMessage(err), 'error')
+    }
   } finally {
     pending.value = false
   }
 })
 
+// restoreLocalDraft applies the cached draft when it is newer than the last
+// confirmed server state. Returns whether anything was applied.
+async function restoreLocalDraft(forceOffline: boolean): Promise<boolean> {
+  if (!postId.value || !editor.value) return false
+  let local: LocalDraft | null = null
+  try {
+    local = await draftStore.load(postId.value)
+  } catch {
+    return false
+  }
+  // Offline loads have no server state to compare against, so any cached
+  // draft wins; online loads restore only strictly newer caches.
+  if (!local) return false
+  if (!forceOffline && !shouldRestoreLocal(local, baseRevision.value, lastServerSave.value)) return false
+  title.value = local.title
+  subtitle.value = local.subtitle
+  editor.value.commands.setContent(local.content as never)
+  refreshWordCount()
+  restoredOffline.value = forceOffline || !online.value
+  saveState.value = '로컬 초안 복원됨'
+  toast.push('오프라인 초안을 복원했습니다', 'success')
+  return true
+}
+
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer)
+  window.removeEventListener('online', handleOnline)
+  window.removeEventListener('offline', handleOffline)
   editor.value?.destroy()
 })
 </script>

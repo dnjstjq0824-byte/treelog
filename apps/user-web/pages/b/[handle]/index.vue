@@ -112,6 +112,24 @@ useSeoMeta({
   description: () => blog.value?.description || 'TreeBlog 블로그'
 })
 
+const feedBase = String(useRuntimeConfig().public.apiBase || '').replace(/\/$/, '')
+useHead(() => ({
+  link: [
+    {
+      rel: 'alternate',
+      type: 'application/rss+xml',
+      title: `${blog.value?.title || '블로그'} RSS`,
+      href: `${feedBase}/b/${handle.value}/feed`
+    },
+    {
+      rel: 'alternate',
+      type: 'application/atom+xml',
+      title: `${blog.value?.title || '블로그'} Atom`,
+      href: `${feedBase}/b/${handle.value}/atom`
+    }
+  ]
+}))
+
 async function loadPosts(nextLimit: number): Promise<void> {
   try {
     posts.value = await api<PostSummary[]>(`/api/v1/public/blogs/${handle.value}/posts/`, {

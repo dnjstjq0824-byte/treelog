@@ -227,7 +227,14 @@ func (h *Handler) handleGetPublicPost(w http.ResponseWriter, r *http.Request) {
 		viewerUserID = user.UserID
 	}
 
-	post, err := h.service.GetPublicPost(r.Context(), blogKey, slug, viewerUserID)
+	// Unlock password for PROTECTED posts. The header keeps secrets out of
+	// URLs and logs; the query parameter stays as a compatibility fallback.
+	password := r.Header.Get("X-Post-Password")
+	if password == "" {
+		password = r.URL.Query().Get("password")
+	}
+
+	post, err := h.service.GetPublicPost(r.Context(), blogKey, slug, viewerUserID, password)
 	if err != nil {
 		h.handleError(w, r, err)
 		return

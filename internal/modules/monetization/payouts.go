@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -142,7 +143,7 @@ func (s *Service) RequestPayout(ctx context.Context, creatorID string, input Req
 	err = tx.QueryRow(ctx, `
 		SELECT COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount_minor ELSE -amount_minor END), 0)
 		FROM ledger_entries
-		WHERE owner_user_id = $1 AND blog_id = $2 AND account_code = 'CREATOR_PENDING_ESCROW'
+		WHERE owner_user_id = $1 AND blog_id = $2 AND account_type = 'CREATOR_PENDING_ESCROW'
 	`, creatorID, input.BlogID).Scan(&balance)
 	if err != nil {
 		return nil, err
@@ -158,14 +159,14 @@ func (s *Service) RequestPayout(ctx context.Context, creatorID string, input Req
 	now := time.Now().UTC()
 	var payout Payout
 	err = tx.QueryRow(ctx, `
-		INSERT INTO payouts (creator_user_id, blog_id, period_start, period_end,
-		                     gross_amount_minor, withholding_tax_minor, net_amount_minor,
+		INSERT INTO payouts (idempotency_key, payee_user_id, blog_id, period_start, period_end,
+		                     gross_payout_minor, withholding_tax_minor, net_payout_minor,
 		                     bank_code, bank_account_enc, account_holder, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'REQUESTED')
-		RETURNING id, creator_user_id, blog_id, period_start, period_end,
-		          gross_amount_minor, withholding_tax_minor, net_amount_minor,
-		          bank_code, account_holder, status, requested_at
-	`, creatorID, input.BlogID, now.AddDate(0, -1, 0), now,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'REQUESTED')
+		RETURNING id, payee_user_id, blog_id, period_start, period_end,
+		          gross_payout_minor, withholding_tax_minor, net_payout_minor,
+		          bank_code, account_holder, status, created_at
+	`, "payout-"+uuid.NewString(), creatorID, input.BlogID, now.AddDate(0, -1, 0), now,
 		input.GrossAmountMinor, withholding, input.GrossAmountMinor-withholding,
 		input.BankCode, sealed, strings.TrimSpace(input.AccountHolder)).Scan(
 		&payout.ID, &payout.CreatorUserID, &payout.BlogID, &payout.PeriodStart, &payout.PeriodEnd,
@@ -193,19 +194,19 @@ func (s *Service) ListPayouts(ctx context.Context, status string, limit, offset 
 		offset = 0
 	}
 	query := `
-		SELECT id, creator_user_id, blog_id, period_start, period_end,
-		       gross_amount_minor, withholding_tax_minor, net_amount_minor,
-		       bank_code, account_holder, status, requested_at
+		SELECT id, payee_user_id, blog_id, period_start, period_end,
+		       gross_payout_minor, withholding_tax_minor, net_payout_minor,
+		       bank_code, account_holder, status, created_at
 		FROM payouts
 	`
 	args := []any{}
 	if status != "" {
 		query += ` WHERE status = $1`
 		args = append(args, strings.ToUpper(status))
-		query += ` ORDER BY requested_at DESC LIMIT $2 OFFSET $3`
+		query += ` ORDER BY created_at DESC LIMIT $2 OFFSET $3`
 		args = append(args, limit, offset)
 	} else {
-		query += ` ORDER BY requested_at DESC LIMIT $1 OFFSET $2`
+		query += ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
 		args = append(args, limit, offset)
 	}
 	rows, err := s.pool.Query(ctx, query, args...)
@@ -248,11 +249,11 @@ func (s *Service) DecidePayout(ctx context.Context, payoutID, decision, reason s
 	}
 	var payout Payout
 	err := s.pool.QueryRow(ctx, `
-		UPDATE payouts SET status = $2, hold_reason = NULLIF($3, ''), decided_at = NOW(), updated_at = NOW()
+		UPDATE payouts SET status = $2, hold_reason = NULLIF($3, ''), updated_at = NOW()
 		WHERE id = $1 AND status IN ('REQUESTED', 'ON_HOLD')
-		RETURNING id, creator_user_id, blog_id, period_start, period_end,
-		          gross_amount_minor, withholding_tax_minor, net_amount_minor,
-		          bank_code, account_holder, status, requested_at
+		RETURNING id, payee_user_id, blog_id, period_start, period_end,
+		          gross_payout_minor, withholding_tax_minor, net_payout_minor,
+		          bank_code, account_holder, status, created_at
 	`, payoutID, next, reason).Scan(
 		&payout.ID, &payout.CreatorUserID, &payout.BlogID, &payout.PeriodStart, &payout.PeriodEnd,
 		&payout.GrossAmountMinor, &payout.WithholdingTaxMinor, &payout.NetAmountMinor,
@@ -299,9 +300,9 @@ func (s *Service) MarkPayoutPaid(ctx context.Context, payoutID string) (*Payout,
 	defer tx.Rollback(ctx)
 	var payout Payout
 	err = tx.QueryRow(ctx, `
-		SELECT id, creator_user_id, blog_id, period_start, period_end,
-		       gross_amount_minor, withholding_tax_minor, net_amount_minor,
-		       bank_code, account_holder, status, requested_at
+		SELECT id, payee_user_id, blog_id, period_start, period_end,
+		       gross_payout_minor, withholding_tax_minor, net_payout_minor,
+		       bank_code, account_holder, status, created_at
 		FROM payouts WHERE id = $1 FOR UPDATE`, payoutID).Scan(
 		&payout.ID, &payout.CreatorUserID, &payout.BlogID, &payout.PeriodStart, &payout.PeriodEnd,
 		&payout.GrossAmountMinor, &payout.WithholdingTaxMinor, &payout.NetAmountMinor,
@@ -321,7 +322,7 @@ func (s *Service) MarkPayoutPaid(ctx context.Context, payoutID string) (*Payout,
 		amount             int64
 	}{
 		{"CREATOR_PENDING_ESCROW", "DEBIT", payout.GrossAmountMinor},
-		{"TAX_WITHHOLDING_PAYABLE", "CREDIT", payout.WithholdingTaxMinor},
+		{"TAX_WITHHOLDING", "CREDIT", payout.WithholdingTaxMinor},
 		{"PAYOUT_DISBURSED", "CREDIT", payout.NetAmountMinor},
 	}
 	for _, entry := range entries {
@@ -329,10 +330,10 @@ func (s *Service) MarkPayoutPaid(ctx context.Context, payoutID string) (*Payout,
 			continue
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO ledger_entries (owner_user_id, blog_id, account_code, direction, amount_minor, currency, reference_type, reference_id, idempotency_key)
-			VALUES ($1, $2, $3, $4, $5, 'KRW', 'PAYOUT_SETTLEMENT', $6, $7)
+			INSERT INTO ledger_entries (transaction_group_id, owner_user_id, blog_id, account_type, direction, amount_minor, currency, reference_type, reference_id, idempotency_key)
+			VALUES ($1, $2, $3, $4, $5, $6, 'KRW', 'PAYOUT_SETTLEMENT', $7, $8)
 			ON CONFLICT (idempotency_key) DO NOTHING
-		`, payout.CreatorUserID, payout.BlogID, entry.account, entry.direction, entry.amount, payout.ID,
+		`, payout.ID, payout.CreatorUserID, payout.BlogID, entry.account, entry.direction, entry.amount, payout.ID,
 			"ledger-payout-"+payout.ID+"-"+entry.account); err != nil {
 			return nil, err
 		}

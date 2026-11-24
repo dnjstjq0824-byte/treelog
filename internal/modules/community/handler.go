@@ -35,6 +35,25 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Delete("/follow", h.handleUnfollow)
 		r.Post("/subscribe", h.handleSubscribe)
 		r.Delete("/subscribe", h.handleUnsubscribe)
+		r.Post("/subscribe/pause", h.handlePauseSubscription)
+		r.Post("/subscribe/resume", h.handleResumeSubscription)
+		r.Patch("/subscribe/channels", h.handleUpdateSubscriptionChannels)
+		r.Post("/neighbors/request", h.handleRequestNeighbor)
+		r.Get("/neighbors/requests", h.handleListNeighborRequests)
+		r.Post("/neighbors/group", h.handleMoveFollowToGroup)
+		r.Post("/neighbors/favorite", h.handleFavoriteFollow)
+		r.Delete("/neighbors/favorite", h.handleUnfavoriteFollow)
+	})
+	r.Route("/api/v1/neighbors/{followId}", func(r chi.Router) {
+		r.Use(identity.RequireAuth)
+		r.Post("/respond", h.handleRespondNeighborRequest)
+	})
+	r.Route("/api/v1/me/neighbor-groups", func(r chi.Router) {
+		r.Use(identity.RequireAuth)
+		r.Get("/", h.handleListNeighborGroups)
+		r.Post("/", h.handleCreateNeighborGroup)
+		r.Patch("/{groupId}", h.handleRenameNeighborGroup)
+		r.Delete("/{groupId}", h.handleDeleteNeighborGroup)
 	})
 	r.Route("/api/v1/posts/{postId}", func(r chi.Router) {
 		r.Get("/reactions", h.handleReactionCounts)
@@ -53,6 +72,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/follows", h.handleListFollows)
 		r.Get("/subscriptions", h.handleListSubscriptions)
 		r.Get("/bookmarks", h.handleListBookmarks)
+		r.Get("/feed", h.handleFollowingFeed)
 	})
 	r.Route("/api/v1/users/{userId}", func(r chi.Router) {
 		r.Use(identity.RequireAuth)
@@ -62,6 +82,14 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Route("/api/v1/comments/{commentId}", func(r chi.Router) {
 		r.Use(identity.RequireAuth)
 		r.Delete("/", h.handleDeleteComment)
+		r.Post("/approve", h.handleApproveComment)
+		r.Post("/reject", h.handleRejectComment)
+		r.Post("/pin", h.handlePinComment)
+		r.Delete("/pin", h.handleUnpinComment)
+	})
+	r.Route("/api/v1/blogs/{blogId}/comments", func(r chi.Router) {
+		r.Use(identity.RequireAuth)
+		r.Get("/pending", h.handleListPendingComments)
 	})
 }
 
@@ -240,6 +268,283 @@ func (h *Handler) handleDeleteComment(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"data":       map[string]bool{"deleted": true},
 		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleApproveComment(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	comment, err := h.service.ApproveComment(r.Context(), user.UserID, chi.URLParam(r, "commentId"))
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       comment,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleRejectComment(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	comment, err := h.service.RejectComment(r.Context(), user.UserID, chi.URLParam(r, "commentId"))
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       comment,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handlePinComment(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	if err := h.service.SetCommentPinned(r.Context(), user.UserID, chi.URLParam(r, "commentId"), true); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"pinned": true},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleUnpinComment(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	if err := h.service.SetCommentPinned(r.Context(), user.UserID, chi.URLParam(r, "commentId"), false); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"pinned": false},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleListPendingComments(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	limit := 30
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	comments, err := h.service.ListPendingComments(r.Context(), user.UserID, chi.URLParam(r, "blogId"), limit)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       comments,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleRequestNeighbor(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	var req struct {
+		Message string `json:"message"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := h.service.RequestNeighbor(r.Context(), user.UserID, chi.URLParam(r, "blogId"), req.Message); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"requested": true},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleListNeighborRequests(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	items, err := h.service.ListNeighborRequests(r.Context(), user.UserID, chi.URLParam(r, "blogId"))
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       items,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleRespondNeighborRequest(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	var req struct {
+		Accept bool `json:"accept"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpserver.WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Invalid request body")
+		return
+	}
+	if err := h.service.RespondNeighborRequest(r.Context(), user.UserID, chi.URLParam(r, "followId"), req.Accept); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"accepted": req.Accept},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleCreateNeighborGroup(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	var req struct {
+		Name string `json:"name"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	group, err := h.service.CreateNeighborGroup(r.Context(), user.UserID, req.Name)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       group,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleListNeighborGroups(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	groups, err := h.service.ListNeighborGroups(r.Context(), user.UserID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       groups,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleRenameNeighborGroup(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	var req struct {
+		Name string `json:"name"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := h.service.RenameNeighborGroup(r.Context(), user.UserID, chi.URLParam(r, "groupId"), req.Name); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"renamed": true},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleDeleteNeighborGroup(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	if err := h.service.DeleteNeighborGroup(r.Context(), user.UserID, chi.URLParam(r, "groupId")); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"deleted": true},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleMoveFollowToGroup(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	var req struct {
+		GroupID *string `json:"group_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := h.service.MoveFollowToGroup(r.Context(), user.UserID, chi.URLParam(r, "blogId"), req.GroupID); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"moved": true},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleFavoriteFollow(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	if err := h.service.SetFollowFavorite(r.Context(), user.UserID, chi.URLParam(r, "blogId"), true); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"favorite": true},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleUnfavoriteFollow(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	if err := h.service.SetFollowFavorite(r.Context(), user.UserID, chi.URLParam(r, "blogId"), false); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"favorite": false},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handlePauseSubscription(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	if err := h.service.PauseSubscription(r.Context(), user.UserID, chi.URLParam(r, "blogId")); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"paused": true},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleResumeSubscription(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	if err := h.service.ResumeSubscription(r.Context(), user.UserID, chi.URLParam(r, "blogId")); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"paused": false},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleUpdateSubscriptionChannels(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	var req struct {
+		NotifyInApp  *bool `json:"notify_in_app"`
+		NotifyWebPush *bool `json:"notify_web_push"`
+		NotifyEmail  *bool `json:"notify_email"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := h.service.UpdateSubscriptionChannels(r.Context(), user.UserID, chi.URLParam(r, "blogId"), req.NotifyInApp, req.NotifyWebPush, req.NotifyEmail); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]bool{"updated": true},
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleFollowingFeed(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	items, nextCursor, err := h.service.FollowingFeed(r.Context(), user.UserID, limit, r.URL.Query().Get("cursor"))
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":        items,
+		"next_cursor": nextCursor,
+		"request_id":  httpserver.RequestID(r),
 	})
 }
 

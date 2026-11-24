@@ -339,7 +339,8 @@ export const VISIBILITIES = [
   { id: 'NEIGHBOR_ONLY', label: '이웃 공개' },
   { id: 'MUTUAL_ONLY', label: '맞이웃 공개' },
   { id: 'PAID_MEMBERS_ONLY', label: '유료 멤버십' },
-  { id: 'PRIVATE', label: '비공개' }
+  { id: 'PRIVATE', label: '비공개' },
+  { id: 'PROTECTED', label: '비밀번호 보호' }
 ] as const
 
 export const COMMENT_POLICIES = [

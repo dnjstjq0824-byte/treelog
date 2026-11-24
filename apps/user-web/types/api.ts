@@ -250,6 +250,7 @@ export interface SubscriptionItem {
   title: string
   tier: string
   notify_in_app: boolean
+  status: string
 }
 
 export interface MembershipTier {

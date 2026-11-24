@@ -9,9 +9,13 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"treeblog/internal/modules/identity"
+	"treeblog/internal/pkg/security"
 )
 
 type Fault struct {
@@ -49,6 +53,9 @@ type PublishPostInput struct {
 	AIDisclosureLevel string          `json:"ai_disclosure_level,omitempty"`
 	PaywallPriceMinor *int64          `json:"paywall_price_minor,omitempty"`
 	ScheduledFor      *time.Time      `json:"scheduled_for,omitempty"`
+	// ProtectionPassword sets the unlock secret when Visibility is
+	// PROTECTED. Nil keeps the stored hash; any other visibility clears it.
+	ProtectionPassword *string `json:"protection_password,omitempty"`
 }
 
 type UpdatePostInput struct {
@@ -157,6 +164,20 @@ func NewService(pool *pgxpool.Pool) *Service {
 
 var nonAlphaNumRegex = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
+// ValidateProtectionPassword enforces the post-protection secret rule:
+// 4-128 characters of valid UTF-8. Deliberately weaker than account
+// passwords (Tistory-style shared secrets) but out of casual-guess range.
+func ValidateProtectionPassword(password string) error {
+	if !utf8.ValidString(password) {
+		return errors.New("protection password must be valid UTF-8")
+	}
+	n := utf8.RuneCountInString(password)
+	if n < 4 || n > 128 {
+		return errors.New("protection password must be 4-128 characters")
+	}
+	return nil
+}
+
 func Slugify(text string) string {
 	slug := strings.ToLower(strings.TrimSpace(text))
 	slug = nonAlphaNumRegex.ReplaceAllString(slug, "-")
@@ -211,9 +232,23 @@ func (s *Service) PublishPost(ctx context.Context, blogID, postID, userID string
 		visibility = "PUBLIC"
 	}
 	switch visibility {
-	case "PUBLIC", "UNLISTED", "NEIGHBOR_ONLY", "MUTUAL_ONLY", "PAID_MEMBERS_ONLY", "PRIVATE":
+	case "PUBLIC", "UNLISTED", "NEIGHBOR_ONLY", "MUTUAL_ONLY", "PAID_MEMBERS_ONLY", "PRIVATE", "PROTECTED":
 	default:
 		visibility = "PUBLIC"
+	}
+
+	// A supplied protection password is validated and hashed before any
+	// database work so the rule stays unit-testable without a pool.
+	var newProtectionHash *string
+	if visibility == "PROTECTED" && input.ProtectionPassword != nil {
+		if err := ValidateProtectionPassword(*input.ProtectionPassword); err != nil {
+			return nil, &Fault{Status: http.StatusBadRequest, Code: "PROTECTION_PASSWORD_INVALID", Message: err.Error()}
+		}
+		hash, err := identity.HashPassword(*input.ProtectionPassword)
+		if err != nil {
+			return nil, err
+		}
+		newProtectionHash = &hash
 	}
 
 	allowComments := strings.ToUpper(strings.TrimSpace(input.AllowComments))
@@ -247,6 +282,10 @@ func (s *Service) PublishPost(ctx context.Context, blogID, postID, userID string
 		seoDesc = excerpt
 	}
 
+	// Strip executable markup before anything is persisted so stored
+	// bodies stay safe even when the editor client is bypassed.
+	contentHTML := security.SanitizePostHTML(input.ContentHTML)
+
 	status := "PUBLISHED"
 	now := time.Now().UTC()
 	var publishedAt *time.Time = &now
@@ -269,13 +308,25 @@ func (s *Service) PublishPost(ctx context.Context, blogID, postID, userID string
 	// Check existing post and unique slug
 	var existingSlug string
 	var existingStatus string
+	var existingProtectionHash *string
 	var currentRevNo int
-	err = tx.QueryRow(ctx, `SELECT slug, status, revision_no FROM posts WHERE id = $1 AND blog_id = $2`, postID, blogID).Scan(&existingSlug, &existingStatus, &currentRevNo)
+	err = tx.QueryRow(ctx, `SELECT slug, status, protection_password_hash, revision_no FROM posts WHERE id = $1 AND blog_id = $2`, postID, blogID).Scan(&existingSlug, &existingStatus, &existingProtectionHash, &currentRevNo)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &Fault{Status: http.StatusNotFound, Code: "POST_NOT_FOUND", Message: "Post not found"}
 		}
 		return nil, err
+	}
+
+	// Protection hash lifecycle: a supplied password replaces the stored
+	// hash, republishing as PROTECTED without one keeps it, any other
+	// visibility clears it, and PROTECTED without any hash is rejected.
+	protectionHash := newProtectionHash
+	if visibility == "PROTECTED" && protectionHash == nil {
+		if existingProtectionHash == nil {
+			return nil, &Fault{Status: http.StatusBadRequest, Code: "PROTECTION_PASSWORD_REQUIRED", Message: "A protection password is required for PROTECTED visibility"}
+		}
+		protectionHash = existingProtectionHash
 	}
 
 	// Slug conflict check with other posts
@@ -303,15 +354,15 @@ func (s *Service) PublishPost(ctx context.Context, blogID, postID, userID string
 		    seo_description = $19, canonical_url = $20, license_type = COALESCE(NULLIF($21, ''), 'ALL_RIGHTS_RESERVED'),
 		    ai_disclosure_level = COALESCE(NULLIF($22, ''), 'NONE'), paywall_price_minor = $23,
 		    word_count = $24, reading_time_sec = $25, revision_no = $26,
-		    published_at = COALESCE(published_at, $27), updated_at = NOW()
-		WHERE id = $28 AND blog_id = $29
+		    protection_password_hash = $27, published_at = COALESCE(published_at, $28), updated_at = NOW()
+		WHERE id = $29 AND blog_id = $30
 	`, title, input.Subtitle, slug, input.CategoryID, input.SeriesID, input.SeriesOrder,
-		input.ContentJSON, input.ContentHTML, input.ContentPlain, excerpt,
+		input.ContentJSON, contentHTML, input.ContentPlain, excerpt,
 		input.CoverMediaID, status, visibility, allowComments,
 		allowReactions, input.IsNotice, input.IsPinned, input.SEOTitle,
 		seoDesc, input.CanonicalURL, input.LicenseType,
 		input.AIDisclosureLevel, input.PaywallPriceMinor,
-		words, readingTime, newRevNo, publishedAt, postID, blogID,
+		words, readingTime, newRevNo, protectionHash, publishedAt, postID, blogID,
 	)
 	if err != nil {
 		return nil, err
@@ -338,7 +389,7 @@ func (s *Service) PublishPost(ctx context.Context, blogID, postID, userID string
 				content_json, content_html, change_summary, is_published_snapshot
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, 'Published snapshot', TRUE)
 			ON CONFLICT (post_id, revision_no) DO NOTHING
-		`, postID, newRevNo, userID, title, input.Subtitle, input.ContentJSON, input.ContentHTML)
+		`, postID, newRevNo, userID, title, input.Subtitle, input.ContentJSON, contentHTML)
 		if err != nil {
 			return nil, err
 		}
@@ -363,7 +414,7 @@ func (s *Service) PublishPost(ctx context.Context, blogID, postID, userID string
 		_, err = tx.Exec(ctx, `
 			INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload_json, idempotency_key)
 			VALUES ('POST', $1, 'post.published', $2, 'evt-post-pub-' || $1 || '-' || $3)
-		`, postID, payload, newRevNo)
+		`, postID, string(payload), newRevNo)
 		if err != nil {
 			return nil, err
 		}
@@ -457,7 +508,7 @@ func (s *Service) UnpublishPost(ctx context.Context, blogID, postID, userID stri
 	_, _ = tx.Exec(ctx, `
 		INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload_json, idempotency_key)
 		VALUES ('POST', $1, 'post.unpublished', $2, 'evt-post-unpub-' || $1 || '-' || extract(epoch from now()))
-	`, postID, payload)
+	`, postID, string(payload))
 
 	return tx.Commit(ctx)
 }
@@ -527,7 +578,9 @@ func (s *Service) RestorePost(ctx context.Context, blogID, postID, userID string
 	return tx.Commit(ctx)
 }
 
-func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewerUserID string) (*PostDetail, error) {
+// GetPublicPost resolves a published post for public consumption. Protected
+// posts additionally require the unlock password, except for the author.
+func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug, viewerUserID, password string) (*PostDetail, error) {
 	if s.pool == nil {
 		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
@@ -544,6 +597,7 @@ func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewe
 
 	var p PostDetail
 	var categoryName, seriesTitle, authorAvatar *string
+	var protectionHash *string
 	err = s.pool.QueryRow(ctx, `
 		SELECT p.id, p.blog_id, p.author_user_id, COALESCE(up.display_name, u.email::text), COALESCE(up.username, ''), up.avatar_media_id::text,
 		       p.category_id, bc.name, p.series_id, s.title, p.series_order,
@@ -552,7 +606,8 @@ func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewe
 		       p.allow_reactions, p.is_notice, p.is_pinned, p.seo_title, p.seo_description,
 		       p.canonical_url, p.license_type, p.ai_disclosure_level, p.paywall_price_minor,
 		       p.word_count, p.reading_time_sec, p.view_count, p.reaction_count, p.comment_count,
-		       p.bookmark_count, p.revision_no, p.published_at, p.created_at, p.updated_at
+		       p.bookmark_count, p.revision_no, p.published_at, p.created_at, p.updated_at,
+		       p.protection_password_hash
 		FROM posts p
 		JOIN users u ON u.id = p.author_user_id
 		LEFT JOIN user_profiles up ON up.user_id = u.id
@@ -568,6 +623,7 @@ func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewe
 		&p.CanonicalURL, &p.LicenseType, &p.AIDisclosureLevel, &p.PaywallPriceMinor,
 		&p.WordCount, &p.ReadingTimeSec, &p.ViewCount, &p.ReactionCount, &p.CommentCount,
 		&p.BookmarkCount, &p.RevisionNo, &p.PublishedAt, &p.CreatedAt, &p.UpdatedAt,
+		&protectionHash,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -577,6 +633,15 @@ func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewe
 				var currentSlug string
 				_ = s.pool.QueryRow(ctx, `SELECT slug FROM posts WHERE id = $1`, oldPostID).Scan(&currentSlug)
 				return nil, &Fault{Status: http.StatusMovedPermanently, Code: "MOVED_PERMANENTLY", Message: currentSlug}
+			}
+			// Removed posts report 410 Gone so crawlers drop them instead
+			// of retrying a 404 indefinitely.
+			var gone bool
+			_ = s.pool.QueryRow(ctx, `SELECT TRUE FROM posts
+				WHERE blog_id = $1 AND slug = $2 AND (trashed_at IS NOT NULL OR status IN ('TRASHED', 'PURGED'))`,
+				blogID, slug).Scan(&gone)
+			if gone {
+				return nil, &Fault{Status: http.StatusGone, Code: "POST_GONE", Message: "Post has been deleted"}
 			}
 			return nil, &Fault{Status: http.StatusNotFound, Code: "POST_NOT_FOUND", Message: "Post not found or unpublished"}
 		}
@@ -593,6 +658,17 @@ func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewe
 		return nil, &Fault{Status: http.StatusForbidden, Code: "POST_PRIVATE", Message: "This post is private"}
 	}
 
+	// Protected posts require the unlock password from everyone but the
+	// author. A missing hash fails closed: the post stays locked.
+	if p.Visibility == "PROTECTED" && viewerUserID != p.AuthorUserID {
+		if protectionHash == nil || password == "" {
+			return nil, &Fault{Status: http.StatusForbidden, Code: "POST_PASSWORD_REQUIRED", Message: "This post requires a password"}
+		}
+		if !identity.VerifyPassword(password, *protectionHash) {
+			return nil, &Fault{Status: http.StatusForbidden, Code: "POST_PASSWORD_INVALID", Message: "Incorrect post password"}
+		}
+	}
+
 	// Paywall check: mask paid content unless the viewer is entitled via a
 	// single-post unlock or an active blog membership.
 	if viewerUserID != p.AuthorUserID && (p.Visibility == "PAID_MEMBERS_ONLY" ||
@@ -600,14 +676,12 @@ func (s *Service) GetPublicPost(ctx context.Context, blogKey, slug string, viewe
 		entitled := viewerUserID != "" && s.hasPaidAccess(ctx, viewerUserID, p.ID, p.BlogID)
 		if !entitled {
 			p.IsPaywalled = true
-			// Mask HTML content
-			runes := []rune(p.ContentPlain)
-			previewLength := 200
-			if len(runes) < previewLength {
-				previewLength = len(runes)
-			}
-			p.ContentHTML = fmt.Sprintf("<div class='paywall-preview'><p>%s</p><div class='paywall-notice'>유료 멤버십 또는 단건 결제 후 열람 가능한 콘텐츠입니다.</div></div>", string(runes[:previewLength]))
-			p.ContentJSON = json.RawMessage(`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"유료 콘텐츠입니다."}]}]}`)
+			previewJSON, previewHTML := CutPaywallPreview(p.ContentJSON, paywallPreviewBlocks, paywallPreviewChars)
+			p.ContentJSON = previewJSON
+			p.ContentHTML = security.SanitizePostHTML(previewHTML)
+			p.ContentPlain = ""
+			// The excerpt stays: it is the author-approved teaser and list
+			// views already expose it for priced public posts.
 		}
 	}
 

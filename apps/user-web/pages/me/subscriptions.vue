@@ -13,14 +13,23 @@
             </p>
             <p class="tb-list-item-desc">
               {{ item.tier === 'PAID' ? '유료 멤버십' : '무료 구독' }}
+              <span v-if="item.status === 'PAUSED'">· 일시정지 중</span>
             </p>
           </div>
-          <button
-            class="tb-btn tb-btn-secondary tb-btn-sm"
-            @click="unsubscribe(item.blog_id)"
-          >
-            구독 취소
-          </button>
+          <div style="display: flex; gap: 6px">
+            <button
+              class="tb-btn tb-btn-ghost tb-btn-sm"
+              @click="togglePause(item)"
+            >
+              {{ item.status === 'PAUSED' ? '다시 구독' : '일시정지' }}
+            </button>
+            <button
+              class="tb-btn tb-btn-secondary tb-btn-sm"
+              @click="unsubscribe(item.blog_id)"
+            >
+              구독 취소
+            </button>
+          </div>
         </li>
       </ul>
     </template>
@@ -50,6 +59,17 @@ async function load(): Promise<void> {
     toast.push('구독 목록을 불러오지 못했습니다', 'error')
   } finally {
     pending.value = false
+  }
+}
+
+async function togglePause(item: SubscriptionItem): Promise<void> {
+  const action = item.status === 'PAUSED' ? 'resume' : 'pause'
+  try {
+    await api(`/api/v1/blogs/${item.blog_id}/subscribe/${action}`, { method: 'POST' })
+    item.status = item.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED'
+    toast.push(item.status === 'PAUSED' ? '구독을 일시정지했습니다' : '구독을 재개했습니다', 'success')
+  } catch {
+    toast.push('요청에 실패했습니다', 'error')
   }
 }
 

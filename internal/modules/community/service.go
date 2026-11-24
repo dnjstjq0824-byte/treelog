@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"treeblog/internal/modules/notification"
 )
 
 // Fault is the module error envelope.
@@ -22,7 +24,8 @@ func (f *Fault) Error() string { return f.Message }
 // Service implements follows, subscriptions, reactions, comments,
 // bookmarks, and user blocks.
 type Service struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	notifier *notification.Service
 }
 
 // NewService builds a community service.
@@ -71,7 +74,11 @@ func (s *Service) Follow(ctx context.Context, userID, blogID string) error {
 		VALUES ($1, $2, 'FOLLOW', 'ACCEPTED')
 		ON CONFLICT (follower_user_id, target_blog_id) DO UPDATE
 		SET status = 'ACCEPTED', updated_at = NOW()`, userID, blogID)
-	return err
+	if err != nil {
+		return err
+	}
+	s.notifyBlogFollowed(ctx, blogID, userID, s.displayName(ctx, userID), "NEIGHBOR", "이웃 추가")
+	return nil
 }
 
 // Unfollow terminates the follow relation (idempotent).
@@ -113,11 +120,12 @@ func (s *Service) ListFollows(ctx context.Context, userID string, limit int) ([]
 
 // Subscription is one blog subscription row.
 type Subscription struct {
-	BlogID   string `json:"blog_id"`
-	Handle   string `json:"handle"`
-	Title    string `json:"title"`
-	Tier     string `json:"tier"`
-	NotifyInApp bool `json:"notify_in_app"`
+	BlogID      string `json:"blog_id"`
+	Handle      string `json:"handle"`
+	Title       string `json:"title"`
+	Tier        string `json:"tier"`
+	NotifyInApp bool   `json:"notify_in_app"`
+	Status      string `json:"status"`
 }
 
 // Subscribe creates a FREE subscription (idempotent).
@@ -132,7 +140,11 @@ func (s *Service) Subscribe(ctx context.Context, userID, blogID string) error {
 		VALUES ($1, $2, 'FREE', 'ACTIVE')
 		ON CONFLICT (subscriber_user_id, target_blog_id) DO UPDATE
 		SET status = 'ACTIVE', updated_at = NOW()`, userID, blogID)
-	return err
+	if err != nil {
+		return err
+	}
+	s.notifyBlogFollowed(ctx, blogID, userID, s.displayName(ctx, userID), "SUBSCRIPTION", "구독")
+	return nil
 }
 
 // Unsubscribe cancels the subscription (keeps history).
@@ -154,9 +166,9 @@ func (s *Service) ListSubscriptions(ctx context.Context, userID string, limit in
 		limit = 30
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT s.target_blog_id, b.handle, b.title, s.tier, s.notify_in_app
+		SELECT s.target_blog_id, b.handle, b.title, s.tier, s.notify_in_app, s.status
 		FROM subscriptions s JOIN blogs b ON b.id = s.target_blog_id
-		WHERE s.subscriber_user_id = $1 AND s.status = 'ACTIVE'
+		WHERE s.subscriber_user_id = $1 AND s.status IN ('ACTIVE', 'PAUSED')
 		ORDER BY s.created_at DESC LIMIT $2`, userID, limit)
 	if err != nil {
 		return nil, err
@@ -165,7 +177,7 @@ func (s *Service) ListSubscriptions(ctx context.Context, userID string, limit in
 	items := make([]Subscription, 0)
 	for rows.Next() {
 		var item Subscription
-		if err := rows.Scan(&item.BlogID, &item.Handle, &item.Title, &item.Tier, &item.NotifyInApp); err != nil {
+		if err := rows.Scan(&item.BlogID, &item.Handle, &item.Title, &item.Tier, &item.NotifyInApp, &item.Status); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -225,7 +237,13 @@ func (s *Service) React(ctx context.Context, userID, postID, reactionType string
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if inserted {
+		s.notifyReacted(ctx, postID, userID, s.displayName(ctx, userID), reactionType)
+	}
+	return nil
 }
 
 // Unreact removes the user's reaction and maintains the counter.

@@ -6,14 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tiptap/extension-image": "^3.32.3",
     "@tiptap/extension-link": "^3.32.3",
     "@tiptap/extension-placeholder": "^3.32.3",
+    "@tiptap/extension-table": "3.32.3",
     "@tiptap/starter-kit": "^3.32.3",
     "@tiptap/vue-3": "^3.32.3",
+    "@treeblog/editor-core": "workspace:*",
     "@treeblog/ui-kit": "workspace:*",
     "pinia": "^3.0.3",
     "vue": "^3.5.18",

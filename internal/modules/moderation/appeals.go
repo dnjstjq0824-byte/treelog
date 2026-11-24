@@ -133,7 +133,7 @@ func (s *Service) DecideAppeal(ctx context.Context, moderatorID, appealID, decis
 	}
 	defer tx.Rollback(ctx)
 	var appeal Appeal
-	var caseID, targetType, targetID string
+	var targetType, targetID string
 	err = tx.QueryRow(ctx, `
 		SELECT a.id, a.case_id, a.appellant_user_id, a.appeal_statement, a.status,
 		       c.target_type, c.target_id
@@ -163,10 +163,12 @@ func (s *Service) DecideAppeal(ctx context.Context, moderatorID, appealID, decis
 			_, _ = tx.Exec(ctx, `UPDATE blogs SET status = 'ACTIVE', updated_at = NOW()
 				WHERE id = $1 AND status = 'SUSPENDED'`, targetID)
 		}
-		_, _ = tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			INSERT INTO moderation_actions (case_id, actor_moderator_id, action_type, policy_clause_code, internal_note, public_notice_reason)
 			VALUES ($1, $2, 'RESTORE_CONTENT', 'APPEAL', $3, 'Appeal approved; content restored')`,
-			caseID, moderatorID, note)
+			appeal.CaseID, moderatorID, note); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE appeals SET status = $2, reviewer_moderator_id = $3,
 		reviewer_decision_note = NULLIF($4, ''), resolved_at = NOW() WHERE id = $1`,
@@ -174,7 +176,7 @@ func (s *Service) DecideAppeal(ctx context.Context, moderatorID, appealID, decis
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE moderation_cases SET status = 'APPEAL_RESOLVED', updated_at = NOW()
-		WHERE id = $1`, caseID); err != nil {
+		WHERE id = $1`, appeal.CaseID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

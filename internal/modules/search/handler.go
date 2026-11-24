@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"treeblog/internal/modules/identity"
 	"treeblog/internal/platform/httpserver"
 )
 
@@ -30,7 +31,16 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/blogs", h.handleSearchBlogs)
 		r.Get("/tags", h.handleSearchTags)
 		r.Get("/suggest", h.handleSuggest)
+		r.Get("/popular-queries", h.handlePopularQueries)
 		r.Post("/click", h.handleLogClick)
+	})
+
+	// Spam-term moderation (platform operators only).
+	r.Route("/api/v1/admin/search", func(r chi.Router) {
+		r.Use(identity.RequireAuth)
+		r.Use(identity.RequirePlatformRole("SUPER_ADMIN", "TRUST_SAFETY_MOD"))
+		r.Get("/blocked-terms", h.handleListBlockedTerms)
+		r.Post("/blocked-terms", h.handleSetTermBlocked)
 	})
 
 	// Discover & Recommendation endpoints
@@ -144,6 +154,61 @@ func (h *Handler) handleSuggest(w http.ResponseWriter, r *http.Request) {
 
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"data":       suggestions,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handlePopularQueries(w http.ResponseWriter, r *http.Request) {
+	limit := 10
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	queries, err := h.service.PopularQueries(r.Context(), limit)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       queries,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleListBlockedTerms(w http.ResponseWriter, r *http.Request) {
+	limit := 30
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	terms, err := h.service.ListBlockedTerms(r.Context(), limit)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       terms,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleSetTermBlocked(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Term    string `json:"term"`
+		Blocked bool   `json:"blocked"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		httpserver.WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST_PAYLOAD", "Invalid request body")
+		return
+	}
+	if err := h.service.SetTermBlocked(r.Context(), input.Term, input.Blocked); err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       map[string]any{"term": input.Term, "blocked": input.Blocked},
 		"request_id": httpserver.RequestID(r),
 	})
 }

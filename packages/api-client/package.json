@@ -1,0 +1,23 @@
+{
+  "name": "@treeblog/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../../BN_TREEBLOG_MASTER_BLUEPRINT/04_API/openapi.yaml -o src/schema.d.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.14.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.4.0",
+    "typescript": "^5.9.2",
+    "vitest": "^5.1.0"
+  }
+}

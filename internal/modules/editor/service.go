@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"treeblog/internal/pkg/safenet"
+	"treeblog/internal/pkg/security"
 )
 
 type Fault struct {
@@ -141,7 +142,7 @@ func (s *Service) CreateDraft(ctx context.Context, blogID, userID string, input 
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'DRAFT', 1)
 		RETURNING id, revision_no
 	`, blogID, userID, input.CategoryID, slug, title, input.Subtitle,
-		contentJSON, input.ContentHTML, input.ContentPlain,
+		contentJSON, security.SanitizePostHTML(input.ContentHTML), input.ContentPlain,
 	).Scan(&postID, &revNo)
 	if err != nil {
 		return nil, err

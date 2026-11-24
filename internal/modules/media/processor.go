@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"strings"
 
+	nativewebp "github.com/HugoSmits86/nativewebp"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/image/draw"
@@ -159,21 +160,31 @@ func (p *Processor) completeJob(ctx context.Context, jobID *string, note string)
 
 func (p *Processor) storeVariants(ctx context.Context, assetID string, img image.Image) {
 	for _, variant := range buildVariants(img) {
-		key := fmt.Sprintf("variants/%s/%s.jpg", assetID, strings.ToLower(variant.Name))
-		if err := p.S3.Put(ctx, p.BucketPublic, key, "image/jpeg", variant.JPEG); err != nil {
-			p.log().Warn("variant upload failed", "asset_id", assetID, "variant", variant.Name, "error", err)
-			continue
+		p.storeVariantFormat(ctx, assetID, variant, "JPEG", "image/jpeg", "jpg", variant.JPEG)
+		// The available WebP encoder is lossless-only, so it beats JPEG on
+		// flat graphics but loses badly on photos. Emit it only when it is
+		// strictly smaller, keeping every variant byte-optimal by format.
+		if len(variant.WEBP) > 0 && len(variant.WEBP) < len(variant.JPEG) {
+			p.storeVariantFormat(ctx, assetID, variant, "WEBP", "image/webp", "webp", variant.WEBP)
 		}
-		publicURL := fmt.Sprintf("/api/v1/public/media/%s?variant=%s", assetID, variant.Name)
-		if _, err := p.Pool.Exec(ctx, `
-			INSERT INTO media_variants (media_asset_id, variant_name, format, width, height, size_bytes, public_cdn_url)
-			VALUES ($1, $2, 'JPEG', $3, $4, $5, $6)
-			ON CONFLICT (media_asset_id, variant_name, format) DO UPDATE
-			SET width = EXCLUDED.width, height = EXCLUDED.height,
-			    size_bytes = EXCLUDED.size_bytes, public_cdn_url = EXCLUDED.public_cdn_url
-		`, assetID, variant.Name, variant.Width, variant.Height, len(variant.JPEG), publicURL); err != nil {
-			p.log().Warn("variant row insert failed", "asset_id", assetID, "variant", variant.Name, "error", err)
-		}
+	}
+}
+
+func (p *Processor) storeVariantFormat(ctx context.Context, assetID string, variant variantImage, format, mimeType, ext string, body []byte) {
+	key := fmt.Sprintf("variants/%s/%s.%s", assetID, strings.ToLower(variant.Name), ext)
+	if err := p.S3.Put(ctx, p.BucketPublic, key, mimeType, body); err != nil {
+		p.log().Warn("variant upload failed", "asset_id", assetID, "variant", variant.Name, "format", format, "error", err)
+		return
+	}
+	publicURL := fmt.Sprintf("/api/v1/public/media/%s?variant=%s&format=%s", assetID, variant.Name, strings.ToLower(format))
+	if _, err := p.Pool.Exec(ctx, `
+		INSERT INTO media_variants (media_asset_id, variant_name, format, width, height, size_bytes, public_cdn_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (media_asset_id, variant_name, format) DO UPDATE
+		SET width = EXCLUDED.width, height = EXCLUDED.height,
+		    size_bytes = EXCLUDED.size_bytes, public_cdn_url = EXCLUDED.public_cdn_url
+	`, assetID, variant.Name, format, variant.Width, variant.Height, len(body), publicURL); err != nil {
+		p.log().Warn("variant row insert failed", "asset_id", assetID, "variant", variant.Name, "format", format, "error", err)
 	}
 }
 
@@ -230,10 +241,12 @@ type variantImage struct {
 	Width  int
 	Height int
 	JPEG   []byte
+	WEBP   []byte
 }
 
-// buildVariants renders downscaled JPEG renditions. Sources are never
-// upscaled; a small source yields only the thumbnail.
+// buildVariants renders downscaled JPEG renditions plus a lossless WebP
+// twin for each. Sources are never upscaled; a small source yields only
+// the thumbnail. Callers decide per variant whether the WebP twin ships.
 func buildVariants(src image.Image) []variantImage {
 	bounds := src.Bounds()
 	srcW, srcH := bounds.Dx(), bounds.Dy()
@@ -243,8 +256,8 @@ func buildVariants(src image.Image) []variantImage {
 	variants := make([]variantImage, 0, 6)
 	thumb := centerCropSquare(src)
 	if thumb != nil {
-		if encoded := encodeJPEG(resizeImage(thumb, 400, 400)); encoded != nil {
-			variants = append(variants, variantImage{Name: "THUMB_400", Width: 400, Height: 400, JPEG: encoded})
+		if encoded := encodeVariant(resizeImage(thumb, 400, 400)); encoded != nil {
+			variants = append(variants, variantImage{Name: "THUMB_400", Width: 400, Height: 400, JPEG: encoded.jpeg, WEBP: encoded.webp})
 		}
 	}
 	for _, target := range []struct {
@@ -263,11 +276,24 @@ func buildVariants(src image.Image) []variantImage {
 		if height <= 0 {
 			continue
 		}
-		if encoded := encodeJPEG(resizeImage(src, target.width, height)); encoded != nil {
-			variants = append(variants, variantImage{Name: target.name, Width: target.width, Height: height, JPEG: encoded})
+		if encoded := encodeVariant(resizeImage(src, target.width, height)); encoded != nil {
+			variants = append(variants, variantImage{Name: target.name, Width: target.width, Height: height, JPEG: encoded.jpeg, WEBP: encoded.webp})
 		}
 	}
 	return variants
+}
+
+type encodedVariant struct {
+	jpeg []byte
+	webp []byte
+}
+
+func encodeVariant(img image.Image) *encodedVariant {
+	jpegBytes := encodeJPEG(img)
+	if jpegBytes == nil {
+		return nil
+	}
+	return &encodedVariant{jpeg: jpegBytes, webp: encodeWEBP(img)}
 }
 
 func resizeImage(src image.Image, width, height int) image.Image {
@@ -295,6 +321,19 @@ func centerCropSquare(src image.Image) image.Image {
 func encodeJPEG(img image.Image) []byte {
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: variantQuality}); err != nil {
+		return nil
+	}
+	return buf.Bytes()
+}
+
+// encodeWEBP renders the lossless twin. It returns nil on any failure so a
+// WebP regression can never block the JPEG pipeline.
+func encodeWEBP(img image.Image) []byte {
+	var buf bytes.Buffer
+	if err := nativewebp.Encode(&buf, img, nil); err != nil {
+		return nil
+	}
+	if buf.Len() == 0 {
 		return nil
 	}
 	return buf.Bytes()

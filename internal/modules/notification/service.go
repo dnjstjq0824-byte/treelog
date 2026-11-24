@@ -36,6 +36,7 @@ type Notification struct {
 // Service reads and mutates in-app notifications.
 type Service struct {
 	pool *pgxpool.Pool
+	hub  *Hub
 }
 
 // NewService builds a notification service.
@@ -43,7 +44,66 @@ func NewService(pool *pgxpool.Pool) (*Service, error) {
 	if pool == nil {
 		return nil, errors.New("notification service requires a database pool")
 	}
-	return &Service{pool: pool}, nil
+	return &Service{pool: pool, hub: NewHub()}, nil
+}
+
+// Hub exposes the live-stream fanout for handlers and tests.
+func (s *Service) Hub() *Hub {
+	if s.hub == nil {
+		s.hub = NewHub()
+	}
+	return s.hub
+}
+
+// inAppPreferenceColumn maps a notification category to its in-app
+// preference column. Categories without a user-facing toggle default to
+// delivered.
+func inAppPreferenceColumn(category string) string {
+	switch category {
+	case "COMMENT":
+		return "comments_in_app"
+	case "REACTION":
+		return "reactions_in_app"
+	case "NEIGHBOR":
+		return "neighbors_in_app"
+	case "SUBSCRIPTION":
+		return "subscriptions_in_app"
+	default:
+		return ""
+	}
+}
+
+// Create stores an in-app notification and publishes it to live streams,
+// honoring the recipient's per-category in-app preference (missing
+// preference rows mean everything enabled). It returns nil without storing
+// when the recipient muted the category.
+func (s *Service) Create(ctx context.Context, recipientID, category, groupKey, dedupKey, title, body, actionURL string) (*Notification, error) {
+	if s.pool == nil {
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if column := inAppPreferenceColumn(category); column != "" {
+		var enabled bool
+		err := s.pool.QueryRow(ctx, `SELECT `+column+` FROM notification_preferences WHERE user_id = $1`, recipientID).Scan(&enabled)
+		if err == nil && !enabled {
+			return nil, nil
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+	}
+	var item Notification
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO notifications (recipient_user_id, category, group_key, dedup_key, title, body, action_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, category, title, body, action_url, is_read, created_at
+	`, recipientID, category, groupKey, dedupKey, title, body, actionURL).Scan(
+		&item.ID, &item.Category, &item.Title, &item.Body, &item.ActionURL, &item.IsRead, &item.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	s.Hub().Publish(recipientID, item)
+	return &item, nil
 }
 
 // List returns the newest-first notification page and the next cursor.

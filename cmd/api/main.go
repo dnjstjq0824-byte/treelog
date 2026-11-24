@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -47,6 +48,23 @@ func main() {
 }
 
 // splitAPIKeys parses a comma-separated API key list.
+// publicHosts extracts the user-web host so first-party pages can hotlink
+// public media while foreign referers are blocked.
+func publicHosts(appBaseURL string) []string {
+	trimmed := strings.TrimSpace(appBaseURL)
+	if trimmed == "" {
+		return nil
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "http://" + trimmed
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Hostname() == "" {
+		return nil
+	}
+	return []string{parsed.Hostname()}
+}
+
 func splitAPIKeys(raw string) []string {
 	keys := []string{}
 	for _, key := range strings.Split(raw, ",") {
@@ -162,8 +180,9 @@ func run(logger *slog.Logger) error {
 			AccessKey: cfg.S3AccessKey,
 			SecretKey: cfg.S3SecretKey,
 		},
-		BucketRaw:    cfg.S3BucketRaw,
-		BucketPublic: cfg.S3BucketPublic,
+		BucketRaw:         cfg.S3BucketRaw,
+		BucketPublic:      cfg.S3BucketPublic,
+		HotlinkAllowHosts: publicHosts(cfg.AppBaseURL),
 	})
 	if err != nil {
 		return err
@@ -183,6 +202,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	communityService.SetNotifier(notificationService)
 	themeService := theme.NewService(pools.Primary)
 	searchService := search.NewService(pools.Primary, opensearch.New(opensearch.Config{
 		Address:     cfg.OpenSearchURL,
@@ -232,6 +252,7 @@ func run(logger *slog.Logger) error {
 				"/api/v1/billing/webhooks/",
 			),
 			// Populate request context with authenticated user information.
+			notification.StreamTokenMiddleware,
 			identity.AuthenticateMiddleware(signer, pools.Primary),
 		),
 	)

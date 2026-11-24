@@ -124,7 +124,7 @@ func (s *Service) CreateOrder(ctx context.Context, buyerID string, input CreateO
 	var existing Order
 	err = tx.QueryRow(ctx, `
 		SELECT id, buyer_user_id, order_type, recipient_blog_id, target_ref_id,
-		       gross_amount_minor, platform_fee_minor, net_amount_minor, currency, status,
+		       gross_amount_minor, platform_fee_minor, net_creator_amount_minor, currency, status,
 		       access_expires_at, created_at
 		FROM orders WHERE idempotency_key = $1 AND buyer_user_id = $2`,
 		input.IdempotencyKey, buyerID).Scan(
@@ -149,15 +149,15 @@ func (s *Service) CreateOrder(ctx context.Context, buyerID string, input CreateO
 	if orderType == "AD_PREPAID_TOPUP" {
 		fee, net = 0, input.GrossAmountMinor
 	}
-	orderID := "ord-" + uuid.NewString()
+	orderID := uuid.NewString()
 	var order Order
 	err = tx.QueryRow(ctx, `
 		INSERT INTO orders (id, buyer_user_id, order_type, recipient_blog_id, target_ref_id,
-		                    gross_amount_minor, platform_fee_minor, net_amount_minor, currency,
+		                    gross_amount_minor, platform_fee_minor, net_creator_amount_minor, currency,
 		                    status, idempotency_key, access_expires_at, donation_message)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'KRW', 'PENDING', $9, $10, NULLIF($11, ''))
 		RETURNING id, buyer_user_id, order_type, recipient_blog_id, target_ref_id,
-		          gross_amount_minor, platform_fee_minor, net_amount_minor, currency, status,
+		          gross_amount_minor, platform_fee_minor, net_creator_amount_minor, currency, status,
 		          access_expires_at, created_at
 	`, orderID, buyerID, orderType, input.RecipientBlogID, input.TargetRefID,
 		input.GrossAmountMinor, fee, net, input.IdempotencyKey, accessExpires, input.DonationMessage).Scan(
@@ -252,7 +252,7 @@ func (s *Service) GetOrder(ctx context.Context, buyerID, orderID string) (*Order
 	var order Order
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, buyer_user_id, order_type, recipient_blog_id, target_ref_id,
-		       gross_amount_minor, platform_fee_minor, net_amount_minor, currency, status,
+		       gross_amount_minor, platform_fee_minor, net_creator_amount_minor, currency, status,
 		       access_expires_at, created_at
 		FROM orders WHERE id = $1 AND buyer_user_id = $2`, orderID, buyerID).Scan(
 		&order.ID, &order.BuyerUserID, &order.OrderType, &order.RecipientBlogID,
@@ -279,7 +279,7 @@ func (s *Service) ListOrders(ctx context.Context, buyerID string, limit, offset 
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, buyer_user_id, order_type, recipient_blog_id, target_ref_id,
-		       gross_amount_minor, platform_fee_minor, net_amount_minor, currency, status,
+		       gross_amount_minor, platform_fee_minor, net_creator_amount_minor, currency, status,
 		       access_expires_at, created_at
 		FROM orders WHERE buyer_user_id = $1
 		ORDER BY created_at DESC LIMIT $2 OFFSET $3`, buyerID, limit, offset)
@@ -370,10 +370,10 @@ func (s *Service) settleOrder(ctx context.Context, order *Order, info *tosspayme
 		paidAt = *info.ApprovedAt
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO payments (order_id, buyer_user_id, pg_provider, pg_transaction_id, method, amount_minor, currency, status, paid_at, pg_payload_json)
-		VALUES ($1, $2, 'TOSS_PAYMENTS', $3, $4, $5, $6, 'CAPTURED', $7, $8)
+		INSERT INTO payments (order_id, pg_provider, pg_transaction_id, payment_method, amount_minor, currency, status, paid_at, raw_webhook_json)
+		VALUES ($1, 'TOSS_PAYMENTS', $2, $3, $4, $5, 'CAPTURED', $6, $7)
 		ON CONFLICT (pg_transaction_id) DO NOTHING
-	`, order.ID, order.BuyerUserID, info.PaymentKey, methodCode(info.Method), info.AmountMinor, order.Currency, paidAt, string(info.Raw)); err != nil {
+	`, order.ID, info.PaymentKey, methodCode(info.Method), info.AmountMinor, order.Currency, paidAt, string(info.Raw)); err != nil {
 		return nil, err
 	}
 	if order.OrderType == "AD_PREPAID_TOPUP" {
@@ -424,10 +424,10 @@ func postLedger(tx pgx.Tx, ctx context.Context, order *Order, ownerUserID string
 		ownerParam = &ownerUserID
 	}
 	_, err := tx.Exec(ctx, `
-		INSERT INTO ledger_entries (owner_user_id, blog_id, account_code, direction, amount_minor, currency, reference_type, reference_id, idempotency_key)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO ledger_entries (transaction_group_id, owner_user_id, blog_id, account_type, direction, amount_minor, currency, reference_type, reference_id, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (idempotency_key) DO NOTHING
-	`, ownerParam, blogID, account, direction, amount, order.Currency, entryType, order.ID,
+	`, order.ID, ownerParam, blogID, account, direction, amount, order.Currency, entryType, order.ID,
 		"ledger-"+order.ID+"-"+account+"-"+direction)
 	return err
 }

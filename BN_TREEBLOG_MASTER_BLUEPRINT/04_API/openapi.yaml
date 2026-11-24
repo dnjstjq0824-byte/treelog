@@ -60,6 +60,8 @@ tags:
   description: '[G22] 회원/블로그/게시글/댓글/모더레이션/검색/광고심사/정산승인/시스템설정/기능플래그/감사로그 통합 관리'
 - name: Import / Export
   description: '[G23] 블로그 전체 백업 내보내기(Markdown/HTML/WXR ZIP), 외부 블로그 가져오기 및 오류 리포트, RSS/Atom 피드'
+- name: SEO & Feeds
+  description: '[G25] RSS/Atom 피드, 크롤러 메타(JSON-LD), 사이트맵'
 - name: TreeScan Integration
   description: '[G24] TreeScan 증분 공개 색인 동기화 피드, 자매 플랫폼 디스커버리 API, OIDC 통합 계정 매핑, 연동 헬스체크'
 components:
@@ -5573,3 +5575,580 @@ paths:
                 $ref: '#/components/schemas/StandardErrorResponse'
       security:
       - ServiceHMACAuth: []
+  /b/{handle}/feed:
+    get:
+      operationId: ep_seo_001
+      tags:
+      - SEO & Feeds
+      summary: '[EP-SEO-001] 블로그 RSS 2.0 피드'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`
+
+        - **Pagination**: `NONE (latest 20)`'
+      parameters:
+      - name: handle
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: RSS 2.0 문서
+          content:
+            application/rss+xml:
+              schema:
+                type: string
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /b/{handle}/atom:
+    get:
+      operationId: ep_seo_002
+      tags:
+      - SEO & Feeds
+      summary: '[EP-SEO-002] 블로그 Atom 1.0 피드'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`
+
+        - **Pagination**: `NONE (latest 20)`'
+      parameters:
+      - name: handle
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Atom 1.0 문서
+          content:
+            application/atom+xml:
+              schema:
+                type: string
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /b/{handle}/tags/{tag}/feed:
+    get:
+      operationId: ep_seo_003
+      tags:
+      - SEO & Feeds
+      summary: '[EP-SEO-003] 태그별 RSS 피드'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: handle
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: tag
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: RSS 2.0 문서
+          content:
+            application/rss+xml:
+              schema:
+                type: string
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /b/{handle}/tags/{tag}/atom:
+    get:
+      operationId: ep_seo_004
+      tags:
+      - SEO & Feeds
+      summary: '[EP-SEO-004] 태그별 Atom 피드'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: handle
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: tag
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Atom 1.0 문서
+          content:
+            application/atom+xml:
+              schema:
+                type: string
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /b/{handle}/comments/feed:
+    get:
+      operationId: ep_seo_005
+      tags:
+      - SEO & Feeds
+      summary: '[EP-SEO-005] 블로그 최근 댓글 RSS 피드'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: handle
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: RSS 2.0 문서
+          content:
+            application/rss+xml:
+              schema:
+                type: string
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /b/{handle}/comments/atom:
+    get:
+      operationId: ep_seo_006
+      tags:
+      - SEO & Feeds
+      summary: '[EP-SEO-006] 블로그 최근 댓글 Atom 피드'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: handle
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Atom 1.0 문서
+          content:
+            application/atom+xml:
+              schema:
+                type: string
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/public/blogs/{blogKey}/posts/{slug}/seo:
+    get:
+      operationId: ep_seo_007
+      tags:
+      - SEO & Feeds
+      summary: '[EP-SEO-007] 게시글 크롤러 메타 (JSON-LD 포함)'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: blogKey
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/comments/{commentId}/approve:
+    post:
+      operationId: ep_cmt_101
+      tags:
+      - Comments
+      summary: '[EP-CMT-101] 승인 대기 댓글 승인'
+      description: '- **Authentication**: `Bearer`
+
+        - **Authorization (RBAC)**: `OWNER/ADMIN/EDITOR (blog)`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403,404,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/comments/{commentId}/reject:
+    post:
+      operationId: ep_cmt_102
+      tags:
+      - Comments
+      summary: '[EP-CMT-102] 승인 대기 댓글 반려'
+      description: '- **Authentication**: `Bearer`
+
+        - **Authorization (RBAC)**: `OWNER/ADMIN/EDITOR (blog)`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403,404,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/comments/{commentId}/pin:
+    post:
+      operationId: ep_cmt_103
+      tags:
+      - Comments
+      summary: '[EP-CMT-103] 댓글 고정'
+      description: '- **Authentication**: `Bearer`
+
+        - **Authorization (RBAC)**: `OWNER/ADMIN/EDITOR (blog)`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403,404,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+    delete:
+      operationId: ep_cmt_104
+      tags:
+      - Comments
+      summary: '[EP-CMT-104] 댓글 고정 해제'
+      description: '- **Authentication**: `Bearer`
+
+        - **Authorization (RBAC)**: `OWNER/ADMIN/EDITOR (blog)`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403,404,409)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/blogs/{blogId}/comments/pending:
+    get:
+      operationId: ep_cmt_105
+      tags:
+      - Comments
+      summary: '[EP-CMT-105] 블로그 댓글 승인 대기 목록'
+      description: '- **Authentication**: `Bearer`
+
+        - **Authorization (RBAC)**: `OWNER/ADMIN/EDITOR (blog)`
+
+        - **Rate Limit**: `600/1m/IP`
+
+        - **Pagination**: `LIMIT (default 30, max 100)`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 30
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/public/media/{assetId}/variants:
+    get:
+      operationId: ep_med_101
+      tags:
+      - Media
+      summary: '[EP-MED-101] 에셋 파생본 목록 (srcset 구성용)'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/blogs/{blogId}/media/{assetId}/original:
+    get:
+      operationId: ep_med_102
+      tags:
+      - Media
+      summary: '[EP-MED-102] 비공개 원본 서명 다운로드 (작성자 전용)'
+      description: '- **Authentication**: `Bearer`
+
+        - **Authorization (RBAC)**: `AUTHOR+ (blog)`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: blogId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: assetId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '302':
+          description: 서명 URL로 리다이렉트
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403,404)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/search/popular-queries:
+    get:
+      operationId: ep_srch_101
+      tags:
+      - Search
+      summary: '[EP-SRCH-101] 인기 검색어 목록'
+      description: '- **Authentication**: `PUBLIC`
+
+        - **Authorization (RBAC)**: `ANON`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 10
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/admin/search/blocked-terms:
+    get:
+      operationId: ep_srch_102
+      tags:
+      - Search
+      summary: '[EP-SRCH-102] 차단 검색어 목록'
+      description: '- **Authentication**: `Bearer`
+
+        - **Authorization (RBAC)**: `SUPER_ADMIN/TRUST_SAFETY_MOD`
+
+        - **Rate Limit**: `600/1m/IP`'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 30
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 401,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+    post:
+      operationId: ep_srch_103
+      tags:
+      - Search
+      summary: '[EP-SRCH-103] 검색어 스팸 차단/해제'
+      description: '- **Authentication**: `Bearer`
+
+        - **Authorization (RBAC)**: `SUPER_ADMIN/TRUST_SAFETY_MOD`
+
+        - **Rate Limit**: `600/1m/IP`'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - term
+              - blocked
+              properties:
+                term:
+                  type: string
+                blocked:
+                  type: boolean
+      responses:
+        '200':
+          description: 성공 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        default:
+          description: '표준 오류 응답 (가능한 상태 코드: 400,401,403)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []

@@ -23,6 +23,10 @@ type Comment struct {
 	IsPinned     bool      `json:"is_pinned"`
 	LikeCount    int       `json:"like_count"`
 	CreatedAt    time.Time `json:"created_at"`
+	// PostSlug and PostTitle are populated only by the moderation queue
+	// so reviewers can tell which post a pending comment belongs to.
+	PostSlug  *string `json:"post_slug,omitempty"`
+	PostTitle *string `json:"post_title,omitempty"`
 }
 
 // CreateCommentInput carries the comment creation payload.
@@ -129,6 +133,7 @@ func (s *Service) CreateComment(ctx context.Context, userID, postID string, inpu
 		return nil, err
 	}
 	comment.AuthorName = s.displayName(ctx, userID)
+	s.notifyCommentCreated(ctx, &comment, userID, comment.AuthorName, commentStatus)
 	return &comment, nil
 }
 
@@ -197,6 +202,143 @@ func (s *Service) canModerate(ctx context.Context, userID, blogID string) bool {
 		return false
 	}
 	return role == "OWNER" || role == "ADMIN" || role == "EDITOR"
+}
+
+// ApproveComment publishes a pending comment. Only blog OWNER/ADMIN/EDITOR
+// roles may approve; approval increments the post comment count.
+func (s *Service) ApproveComment(ctx context.Context, userID, commentID string) (*Comment, error) {
+	return s.decideComment(ctx, userID, commentID, true)
+}
+
+// RejectComment hides a pending comment without publishing it.
+func (s *Service) RejectComment(ctx context.Context, userID, commentID string) (*Comment, error) {
+	return s.decideComment(ctx, userID, commentID, false)
+}
+
+func (s *Service) decideComment(ctx context.Context, userID, commentID string, approve bool) (*Comment, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	tx, err := s.DB().Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	var comment Comment
+	var blogID, status string
+	// The row lock cannot span the nullable profile join, so the author
+	// name resolves after the locked read.
+	err = tx.QueryRow(ctx, `
+		SELECT id, post_id, author_user_id, parent_comment_id, depth,
+		       content_text, is_secret, is_pinned, like_count, created_at,
+		       blog_id, status
+		FROM comments WHERE id = $1 FOR UPDATE`, commentID).Scan(
+		&comment.ID, &comment.PostID, &comment.AuthorUserID,
+		&comment.ParentID, &comment.Depth, &comment.ContentText, &comment.IsSecret,
+		&comment.IsPinned, &comment.LikeCount, &comment.CreatedAt, &blogID, &status,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, &Fault{Status: http.StatusNotFound, Code: "COMMENT_NOT_FOUND", Message: "Comment not found"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	comment.AuthorName = s.displayName(ctx, comment.AuthorUserID)
+	if !s.canModerateTx(ctx, tx, userID, blogID) {
+		return nil, &Fault{Status: http.StatusForbidden, Code: "NOT_COMMENT_MODERATOR", Message: "Only blog moderators can review comments"}
+	}
+	if status != "PENDING_APPROVAL" {
+		return nil, &Fault{Status: http.StatusConflict, Code: "COMMENT_NOT_PENDING", Message: "Only pending comments can be reviewed"}
+	}
+	next := "HIDDEN_BY_OWNER"
+	if approve {
+		next = "PUBLISHED"
+	}
+	if _, err := tx.Exec(ctx, `UPDATE comments SET status = $1, updated_at = NOW() WHERE id = $2`, next, commentID); err != nil {
+		return nil, err
+	}
+	if approve {
+		_, _ = tx.Exec(ctx, `UPDATE posts SET comment_count = comment_count + 1 WHERE id = $1`, comment.PostID)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &comment, nil
+}
+
+func (s *Service) canModerateTx(ctx context.Context, tx pgx.Tx, userID, blogID string) bool {
+	if userID == "" {
+		return false
+	}
+	var role string
+	if err := tx.QueryRow(ctx, `SELECT role FROM blog_members WHERE blog_id = $1 AND user_id = $2`,
+		blogID, userID).Scan(&role); err != nil {
+		return false
+	}
+	return role == "OWNER" || role == "ADMIN" || role == "EDITOR"
+}
+
+// ListPendingComments returns the oldest-first approval queue for a blog.
+func (s *Service) ListPendingComments(ctx context.Context, userID, blogID string, limit int) ([]Comment, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	if !s.canModerate(ctx, userID, blogID) {
+		return nil, &Fault{Status: http.StatusForbidden, Code: "NOT_COMMENT_MODERATOR", Message: "Only blog moderators can review comments"}
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT c.id, c.post_id, c.author_user_id, COALESCE(up.display_name, ''),
+		       c.parent_comment_id, c.depth, c.content_text, c.is_secret, c.is_pinned,
+		       c.like_count, c.created_at, p.slug, p.title
+		FROM comments c
+		JOIN posts p ON p.id = c.post_id
+		LEFT JOIN user_profiles up ON up.user_id = c.author_user_id
+		WHERE c.blog_id = $1 AND c.status = 'PENDING_APPROVAL'
+		ORDER BY c.created_at ASC
+		LIMIT $2`, blogID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	comments := make([]Comment, 0)
+	for rows.Next() {
+		var comment Comment
+		if err := rows.Scan(&comment.ID, &comment.PostID, &comment.AuthorUserID, &comment.AuthorName,
+			&comment.ParentID, &comment.Depth, &comment.ContentText, &comment.IsSecret,
+			&comment.IsPinned, &comment.LikeCount, &comment.CreatedAt,
+			&comment.PostSlug, &comment.PostTitle); err != nil {
+			return nil, err
+		}
+		comments = append(comments, comment)
+	}
+	return comments, rows.Err()
+}
+
+// SetCommentPinned pins or unpins a published comment. Only blog
+// OWNER/ADMIN/EDITOR roles may pin; pinned comments sort first.
+func (s *Service) SetCommentPinned(ctx context.Context, userID, commentID string, pinned bool) error {
+	if err := s.requirePool(); err != nil {
+		return err
+	}
+	var blogID, status string
+	err := s.pool.QueryRow(ctx, `SELECT blog_id, status FROM comments WHERE id = $1`, commentID).Scan(&blogID, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return &Fault{Status: http.StatusNotFound, Code: "COMMENT_NOT_FOUND", Message: "Comment not found"}
+	}
+	if err != nil {
+		return err
+	}
+	if !s.canModerate(ctx, userID, blogID) {
+		return &Fault{Status: http.StatusForbidden, Code: "NOT_COMMENT_MODERATOR", Message: "Only blog moderators can pin comments"}
+	}
+	if status != "PUBLISHED" {
+		return &Fault{Status: http.StatusConflict, Code: "COMMENT_NOT_PINNABLE", Message: "Only published comments can be pinned"}
+	}
+	_, err = s.pool.Exec(ctx, `UPDATE comments SET is_pinned = $1, updated_at = NOW() WHERE id = $2`, pinned, commentID)
+	return err
 }
 
 // DeleteComment soft-deletes a comment owned by the user.

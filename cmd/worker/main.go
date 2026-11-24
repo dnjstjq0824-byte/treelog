@@ -109,17 +109,24 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	go runSchedulerLoop(ctx, pools.Primary, modService, logger)
+	go runSchedulerLoop(ctx, pools.Primary, modService, logger, schedulerInterval)
 
 	relay := &outbox.Relay{Pool: pools.Primary, Queue: client, Logger: logger}
 	return relay.Run(ctx)
 }
 
+// schedulerInterval is the sweep period for due scheduled publications and
+// expired suspension resumptions. The J_JOBS_SCHEDULING contract requires a
+// 5-second sweep with under 5 seconds of scheduling error.
+const schedulerInterval = 5 * time.Second
+
 // runSchedulerLoop executes due scheduled publications and expired
-// suspension resumptions every 30 seconds.
-func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, modService *moderation.Service, logger *slog.Logger) {
+// suspension resumptions on every tick. The loop is sequential, so a slow
+// sweep delays (never overlaps) the next one; SKIP LOCKED in the sweep
+// queries keeps concurrent workers from double-processing.
+func runSchedulerLoop(ctx context.Context, pool *pgxpool.Pool, modService *moderation.Service, logger *slog.Logger, interval time.Duration) {
 	scheduler := post.NewScheduler(pool, logger)
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {

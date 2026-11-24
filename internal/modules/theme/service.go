@@ -6,8 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
+	"github.com/aymerick/douceur/css"
+	"github.com/aymerick/douceur/parser"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -65,22 +68,217 @@ func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
 }
 
-var dangerousCSSPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)javascript:`),
-	regexp.MustCompile(`(?i)expression\s*\(`),
-	regexp.MustCompile(`(?i)behavior\s*:`),
-	regexp.MustCompile(`(?i)@import`),
-	regexp.MustCompile(`(?i)url\s*\(\s*['"]?data:[^'"]*['"]?\s*\)`),
-	regexp.MustCompile(`(?i)<[^>]*>`),
-	regexp.MustCompile(`(?i)-moz-binding`),
+// themeScopeRoot confines every custom CSS selector to the blog theme subtree.
+const themeScopeRoot = ".tb-blog-theme-root"
+
+// platformSelectorFragments are platform-owned UI hooks that custom CSS must
+// never match, so users cannot hide or spoof the platform header, ad badge,
+// or report button.
+var platformSelectorFragments = []string{".tb-platform-header", ".tb-ad-badge", ".tb-report-btn"}
+
+// allowedAtRules is the closed set of at-rules permitted in custom CSS.
+// Everything else (@import, @charset, @namespace, @document, @page, ...) is
+// dropped without parsing its payload.
+var allowedAtRules = map[string]bool{
+	"@media":     true,
+	"@supports":  true,
+	"@keyframes": true,
+	"@font-face": true,
 }
 
+// blockedDeclarationProps are legacy properties that execute code in old
+// engines and have no legitimate use in blog themes.
+var blockedDeclarationProps = map[string]bool{
+	"behavior":    true,
+	"-moz-binding": true,
+}
+
+// blockedValueFragments are case-insensitive substrings that never appear in
+// legitimate declaration values.
+var blockedValueFragments = []string{
+	"javascript:",
+	"expression(",
+	"behavior:",
+	"-moz-binding",
+	"</style",
+}
+
+var cssURLTarget = regexp.MustCompile(`(?i)url\(\s*['"]?\s*([^'")\s]+)`)
+
+// SanitizeCSS parses custom theme CSS and re-emits only the safe subset:
+// disallowed at-rules, platform selectors, dangerous declarations, and
+// unsafe url() targets are dropped, and every remaining selector is scoped
+// under .tb-blog-theme-root. Genuinely unparseable input yields an empty
+// string (fail closed); recoverable slips such as unclosed blocks are
+// parsed leniently like browsers do, with every recovered rule filtered.
 func SanitizeCSS(rawCSS string) string {
-	cleaned := rawCSS
-	for _, pattern := range dangerousCSSPatterns {
-		cleaned = pattern.ReplaceAllString(cleaned, "/* stripped unsafe css */")
+	if strings.TrimSpace(rawCSS) == "" {
+		return ""
 	}
-	return cleaned
+	sheet, err := parser.Parse(rawCSS)
+	if err != nil {
+		return ""
+	}
+	out := css.NewStylesheet()
+	for _, rule := range sheet.Rules {
+		if clean := sanitizeCSSRule(rule, true); clean != nil {
+			out.Rules = append(out.Rules, clean)
+		}
+	}
+	return out.String()
+}
+
+func sanitizeCSSRule(rule *css.Rule, scope bool) *css.Rule {
+	if rule.Kind == css.AtRule {
+		return sanitizeCSSAtRule(rule)
+	}
+	selectors := make([]string, 0, len(rule.Selectors))
+	for _, sel := range rule.Selectors {
+		sel = strings.TrimSpace(sel)
+		if sel == "" || strings.Contains(sel, "<") || isPlatformSelector(sel) {
+			continue
+		}
+		if scope {
+			sel = scopeCSSSelector(sel)
+		}
+		selectors = append(selectors, sel)
+	}
+	if len(selectors) == 0 {
+		return nil
+	}
+	decls := filterCSSDeclarations(rule.Declarations)
+	if len(decls) == 0 {
+		return nil
+	}
+	rule.Selectors = selectors
+	rule.Declarations = decls
+	return rule
+}
+
+func sanitizeCSSAtRule(rule *css.Rule) *css.Rule {
+	if !allowedAtRules[strings.ToLower(strings.TrimSpace(rule.Name))] {
+		return nil
+	}
+	if styleBreakout(rule.Prelude) {
+		return nil
+	}
+	// Keyframe step selectors (from/to/percentages) are not DOM selectors
+	// and must not be theme-scoped; only their declarations are filtered.
+	scopeNested := strings.ToLower(strings.TrimSpace(rule.Name)) != "@keyframes"
+	if rule.EmbedsRules() {
+		nested := make([]*css.Rule, 0, len(rule.Rules))
+		for _, sub := range rule.Rules {
+			if clean := sanitizeCSSRule(sub, scopeNested); clean != nil {
+				nested = append(nested, clean)
+			}
+		}
+		if len(nested) == 0 {
+			return nil
+		}
+		rule.Rules = nested
+		return rule
+	}
+	decls := filterCSSDeclarations(rule.Declarations)
+	if len(decls) == 0 {
+		return nil
+	}
+	rule.Declarations = decls
+	return rule
+}
+
+func isPlatformSelector(sel string) bool {
+	lower := strings.ToLower(sel)
+	for _, frag := range platformSelectorFragments {
+		if strings.Contains(lower, frag) {
+			return true
+		}
+	}
+	return false
+}
+
+func scopeCSSSelector(sel string) string {
+	if sel == ":root" {
+		return themeScopeRoot
+	}
+	if strings.HasPrefix(sel, themeScopeRoot) {
+		return sel
+	}
+	return themeScopeRoot + " " + sel
+}
+
+func filterCSSDeclarations(decls []*css.Declaration) []*css.Declaration {
+	kept := make([]*css.Declaration, 0, len(decls))
+	for _, decl := range decls {
+		if decl == nil {
+			continue
+		}
+		prop := strings.ToLower(strings.TrimSpace(decl.Property))
+		if blockedDeclarationProps[prop] {
+			continue
+		}
+		lowerValue := strings.ToLower(decl.Value)
+		blocked := false
+		for _, frag := range blockedValueFragments {
+			if strings.Contains(lowerValue, frag) {
+				blocked = true
+				break
+			}
+		}
+		if !blocked {
+			for _, target := range cssURLTargets(decl.Value) {
+				if !allowedCSSURL(target) {
+					blocked = true
+					break
+				}
+			}
+		}
+		if !blocked {
+			kept = append(kept, decl)
+		}
+	}
+	return kept
+}
+
+func cssURLTargets(value string) []string {
+	matches := cssURLTarget.FindAllStringSubmatch(value, -1)
+	targets := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if len(m) > 1 {
+			targets = append(targets, strings.TrimSpace(m[1]))
+		}
+	}
+	return targets
+}
+
+// allowedCSSURL permits relative, root-relative, protocol-relative, and
+// http(s) targets plus same-document fragments and data:image/* payloads.
+// Every other scheme (javascript:, data:text/html, vbscript:, file:, ...) is
+// rejected.
+func allowedCSSURL(target string) bool {
+	t := strings.TrimSpace(target)
+	if t == "" || strings.HasPrefix(t, "#") {
+		return true
+	}
+	lower := strings.ToLower(t)
+	if strings.HasPrefix(lower, "data:") {
+		return strings.HasPrefix(lower, "data:image/")
+	}
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return true
+	}
+	if idx := strings.Index(lower, ":"); idx >= 0 {
+		before := lower[:idx]
+		// A colon before any /?# starts a URI scheme; otherwise it is a
+		// port or path segment of a relative URL.
+		if !strings.ContainsAny(before, "/?#") {
+			return false
+		}
+	}
+	return true
+}
+
+func styleBreakout(text string) bool {
+	return strings.Contains(strings.ToLower(text), "</style")
 }
 
 func (s *Service) CheckAdminRole(ctx context.Context, blogID, userID string) error {

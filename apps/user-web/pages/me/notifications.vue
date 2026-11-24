@@ -104,5 +104,37 @@ async function markAllRead(): Promise<void> {
   }
 }
 
-onMounted(() => fetchPage(false))
+let stream: EventSource | null = null
+
+function watchLive(): void {
+  if (typeof EventSource === 'undefined') return
+  const token = useCookie<string | null>('tb_access').value
+  if (!token) return
+  const base = String(useRuntimeConfig().public.apiBase || '').replace(/\/$/, '')
+  try {
+    stream = new EventSource(`${base}/api/v1/me/notifications/stream?access_token=${encodeURIComponent(token)}`)
+  } catch {
+    return
+  }
+  stream.addEventListener('notification', (event: MessageEvent) => {
+    try {
+      const item = JSON.parse((event as MessageEvent<string>).data) as NotificationItem
+      if (!items.value.some((existing) => existing.id === item.id)) {
+        items.value = [item, ...items.value]
+      }
+    } catch {
+      // Malformed live events never break the list.
+    }
+  })
+}
+
+onMounted(() => {
+  fetchPage(false)
+  watchLive()
+})
+
+onUnmounted(() => {
+  stream?.close()
+  stream = null
+})
 </script>

@@ -29,6 +29,13 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/sitemap.xml", h.handleSitemap)
 	r.Get("/robots.txt", h.handleRobots)
 	r.Get("/api/v1/public/blogs/{blogKey}/seo", h.handleBlogMeta)
+	r.Get("/api/v1/public/blogs/{blogKey}/posts/{slug}/seo", h.handlePostMeta)
+	r.Get("/b/{handle}/feed", h.handlePostFeed("rss"))
+	r.Get("/b/{handle}/atom", h.handlePostFeed("atom"))
+	r.Get("/b/{handle}/tags/{tag}/feed", h.handleTagFeed("rss"))
+	r.Get("/b/{handle}/tags/{tag}/atom", h.handleTagFeed("atom"))
+	r.Get("/b/{handle}/comments/feed", h.handleCommentFeed("rss"))
+	r.Get("/b/{handle}/comments/atom", h.handleCommentFeed("atom"))
 }
 
 func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error) {
@@ -68,4 +75,55 @@ func (h *Handler) handleBlogMeta(w http.ResponseWriter, r *http.Request) {
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
 		"data": meta, "request_id": httpserver.RequestID(r),
 	})
+}
+
+func (h *Handler) handlePostMeta(w http.ResponseWriter, r *http.Request) {
+	meta, err := h.service.PostMeta(r.Context(), chi.URLParam(r, "blogKey"), chi.URLParam(r, "slug"))
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data": meta, "request_id": httpserver.RequestID(r),
+	})
+}
+
+func feedContentType(format string) string {
+	if format == "atom" {
+		return "application/atom+xml; charset=utf-8"
+	}
+	return "application/rss+xml; charset=utf-8"
+}
+
+func (h *Handler) writeFeed(w http.ResponseWriter, r *http.Request, format, body string, err error) {
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", feedContentType(format))
+	w.Header().Set("Cache-Control", "public, max-age=900")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(body))
+}
+
+func (h *Handler) handlePostFeed(format string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := h.service.BlogPostFeed(r.Context(), chi.URLParam(r, "handle"), "", format)
+		h.writeFeed(w, r, format, body, err)
+	}
+}
+
+func (h *Handler) handleTagFeed(format string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := h.service.BlogPostFeed(r.Context(), chi.URLParam(r, "handle"), chi.URLParam(r, "tag"), format)
+		h.writeFeed(w, r, format, body, err)
+	}
+}
+
+func (h *Handler) handleCommentFeed(format string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := h.service.BlogCommentFeed(r.Context(), chi.URLParam(r, "handle"), format)
+		h.writeFeed(w, r, format, body, err)
+	}
 }

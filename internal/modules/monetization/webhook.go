@@ -43,7 +43,7 @@ func (s *Service) HandleWebhook(ctx context.Context, raw json.RawMessage) error 
 	var order Order
 	err = s.pool.QueryRow(ctx, `
 		SELECT id, buyer_user_id, order_type, recipient_blog_id, target_ref_id,
-		       gross_amount_minor, platform_fee_minor, net_amount_minor, currency, status,
+		       gross_amount_minor, platform_fee_minor, net_creator_amount_minor, currency, status,
 		       access_expires_at, created_at
 		FROM orders WHERE id = $1`, hook.Data.OrderID).Scan(
 		&order.ID, &order.BuyerUserID, &order.OrderType, &order.RecipientBlogID,

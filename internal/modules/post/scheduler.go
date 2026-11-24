@@ -114,7 +114,7 @@ func (s *Scheduler) ProcessScheduledPublications(ctx context.Context) (int, erro
 		_, _ = tx.Exec(ctx, `
 			INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload_json, idempotency_key)
 			VALUES ('POST', $1, 'post.published', $2, 'evt-post-sched-' || $1 || '-' || $3)
-		`, d.PostID, payload, revNo)
+		`, d.PostID, string(payload), revNo)
 
 		if err := tx.Commit(ctx); err == nil {
 			count++

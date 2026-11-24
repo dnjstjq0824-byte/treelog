@@ -402,7 +402,7 @@ func (s *Service) Suggest(ctx context.Context, prefix string, limit int) ([]stri
 	rows, err := s.pool.Query(ctx, `
 		SELECT normalized_query FROM search_queries
 		WHERE normalized_query ILIKE $1 || '%' AND is_blocked_spam_term = FALSE
-		ORDER BY search_count DESC
+		ORDER BY search_count DESC, last_searched_at DESC
 		LIMIT $2
 	`, prefix, limit)
 	if err != nil {
@@ -418,6 +418,83 @@ func (s *Service) Suggest(ctx context.Context, prefix string, limit int) ([]stri
 		}
 	}
 	return suggestions, rows.Err()
+}
+
+// PopularQueries returns the most-searched non-blocked terms for the search
+// page and trending widgets.
+func (s *Service) PopularQueries(ctx context.Context, limit int) ([]string, error) {
+	if s.pool == nil {
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT normalized_query FROM search_queries
+		WHERE is_blocked_spam_term = FALSE
+		ORDER BY search_count DESC, last_searched_at DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	queries := make([]string, 0)
+	for rows.Next() {
+		var q string
+		if err := rows.Scan(&q); err == nil {
+			queries = append(queries, q)
+		}
+	}
+	return queries, rows.Err()
+}
+
+// SetTermBlocked marks a normalized query as spam (or clears the mark).
+// Blocked terms vanish from suggestions and popular lists immediately;
+// past searches are kept for audit. Upserts so moderators can pre-block
+// terms nobody searched yet.
+func (s *Service) SetTermBlocked(ctx context.Context, term string, blocked bool) error {
+	if s.pool == nil {
+		return &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	normalized := strings.ToLower(strings.TrimSpace(term))
+	if normalized == "" || len(normalized) > 200 {
+		return &Fault{Status: http.StatusBadRequest, Code: "INVALID_SEARCH_TERM", Message: "Search term must be 1-200 characters"}
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO search_queries (normalized_query, is_blocked_spam_term, last_searched_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (normalized_query, language_code) DO UPDATE
+		SET is_blocked_spam_term = EXCLUDED.is_blocked_spam_term, last_searched_at = NOW()
+	`, normalized, blocked)
+	return err
+}
+
+// ListBlockedTerms returns blocked terms newest-first for moderation review.
+func (s *Service) ListBlockedTerms(ctx context.Context, limit int) ([]string, error) {
+	if s.pool == nil {
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT normalized_query FROM search_queries
+		WHERE is_blocked_spam_term = TRUE
+		ORDER BY last_searched_at DESC LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	terms := make([]string, 0)
+	for rows.Next() {
+		var term string
+		if err := rows.Scan(&term); err == nil {
+			terms = append(terms, term)
+		}
+	}
+	return terms, rows.Err()
 }
 
 func (s *Service) LogClickEvent(ctx context.Context, input ClickEventInput) error {

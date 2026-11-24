@@ -49,3 +49,18 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+  codegen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @treeblog/api-client generate
+      - name: Fail on client drift
+        run: git diff --exit-code -- packages/api-client/src/schema.d.ts

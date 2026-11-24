@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -34,8 +35,10 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/", h.handleListMedia)
 		r.Patch("/{assetId}", h.handleUpdateMediaMetadata)
 		r.Post("/video-embed", h.handleCreateVideoEmbed)
+		r.Get("/{assetId}/original", h.handleOriginalDownload)
 	})
 	r.Get("/api/v1/public/media/{assetId}", h.handlePublicMedia)
+	r.Get("/api/v1/public/media/{assetId}/variants", h.handleListVariants)
 }
 
 func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error) {
@@ -123,7 +126,53 @@ func (h *Handler) handlePublicMedia(w http.ResponseWriter, r *http.Request) {
 	assetID := chi.URLParam(r, "assetId")
 	variant := r.URL.Query().Get("variant")
 
-	bucket, key, _, err := h.service.PublicObject(r.Context(), assetID, variant)
+	if !h.service.HotlinkAllowed(r.Header.Get("Referer"), r.Host) {
+		httpserver.WriteError(w, r, http.StatusForbidden, "HOTLINK_BLOCKED", "Hotlinking from this referer is not allowed")
+		return
+	}
+
+	// Explicit ?format= wins; otherwise browsers advertising WebP get the
+	// smaller twin when the pipeline emitted one, with JPEG fallback.
+	format := r.URL.Query().Get("format")
+	if format == "" && variant != "" && strings.Contains(r.Header.Get("Accept"), "image/webp") {
+		format = "webp"
+	}
+	bucket, key, _, err := h.service.PublicObject(r.Context(), assetID, variant, format)
+	if err != nil {
+		var fault *Fault
+		if variant != "" && strings.EqualFold(format, "webp") && r.URL.Query().Get("format") == "" &&
+			errors.As(err, &fault) && fault.Code == "VARIANT_NOT_FOUND" {
+			bucket, key, _, err = h.service.PublicObject(r.Context(), assetID, variant, "jpeg")
+		}
+		if err != nil {
+			h.handleError(w, r, err)
+			return
+		}
+	}
+	target, err := h.service.PresignDelivery(bucket, key)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+func (h *Handler) handleListVariants(w http.ResponseWriter, r *http.Request) {
+	variants, err := h.service.ListVariants(r.Context(), chi.URLParam(r, "assetId"))
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":       variants,
+		"request_id": httpserver.RequestID(r),
+	})
+}
+
+func (h *Handler) handleOriginalDownload(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	bucket, key, _, err := h.service.OriginalObject(r.Context(),
+		chi.URLParam(r, "blogId"), chi.URLParam(r, "assetId"), user.UserID)
 	if err != nil {
 		h.handleError(w, r, err)
 		return

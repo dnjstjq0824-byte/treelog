@@ -55,7 +55,7 @@
         <div v-for="asset in items" :key="asset.id" class="tb-media-card">
           <img
             v-if="asset.media_type === 'IMAGE'"
-            :src="publicMediaURL(asset.id)"
+            :src="publicMediaURL(asset.id, 'THUMB_400')"
             :alt="asset.alt_text || '미디어'"
             loading="lazy"
           />
@@ -67,6 +67,13 @@
             <p class="tb-hint">{{ Math.round(asset.original_size_bytes / 1024) }} KB</p>
             <div style="display: flex; gap: 6px; margin-top: 6px">
               <button class="tb-btn tb-btn-ghost tb-btn-sm" @click="copyUrl(asset.id)">URL 복사</button>
+              <button
+                v-if="asset.media_type === 'IMAGE'"
+                class="tb-btn tb-btn-ghost tb-btn-sm"
+                @click="copySrcset(asset.id)"
+              >
+                srcset 복사
+              </button>
               <button class="tb-btn tb-btn-ghost tb-btn-sm" @click="startEdit(asset)">편집</button>
             </div>
           </div>
@@ -89,7 +96,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, apiRaw, friendlyMessage } from '../lib/api'
-import { publicMediaURL, uploadImage } from '../lib/media'
+import { buildSrcset, publicMediaURL, uploadImage, type MediaVariantInfo } from '../lib/media'
 import type { MediaAsset } from '../lib/types'
 import { useToastStore } from '../stores/toast'
 
@@ -207,6 +214,21 @@ async function copyUrl(assetId: string): Promise<void> {
     toast.push('URL을 복사했습니다', 'success')
   } catch {
     toast.push(publicMediaURL(assetId), 'info')
+  }
+}
+
+async function copySrcset(assetId: string): Promise<void> {
+  try {
+    const variants = await api<MediaVariantInfo[]>(`/api/v1/public/media/${assetId}/variants`, { auth: false })
+    const srcset = buildSrcset(assetId, variants)
+    if (!srcset) {
+      toast.push('생성된 파생본이 없습니다', 'error')
+      return
+    }
+    await navigator.clipboard.writeText(srcset)
+    toast.push('srcset을 복사했습니다', 'success')
+  } catch {
+    toast.push('srcset을 불러오지 못했습니다', 'error')
   }
 }
 

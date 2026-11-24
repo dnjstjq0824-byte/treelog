@@ -4,8 +4,31 @@
     <div class="tb-skeleton" style="width: 95%; height: 38px" />
     <div class="tb-skeleton" style="width: 100%; height: 400px" />
   </div>
+  <div v-else-if="locked">
+    <EmptyState title="보호된 글입니다" description="비밀번호를 입력하면 열람할 수 있습니다.">
+      <template #action>
+        <form style="display: flex; gap: 8px; justify-content: center" @submit.prevent="unlockWithPassword">
+          <input
+            v-model="password"
+            type="password"
+            class="tb-input"
+            style="max-width: 240px"
+            placeholder="비밀번호"
+            autocomplete="off"
+          />
+          <button class="tb-btn tb-btn-primary tb-btn-sm" :disabled="unlockBusy">
+            {{ unlockBusy ? '확인 중…' : '열람' }}
+          </button>
+        </form>
+        <p v-if="unlockError" class="tb-error-text" style="margin-top: 8px">{{ unlockError }}</p>
+      </template>
+    </EmptyState>
+  </div>
   <div v-else-if="failed || !post">
-    <EmptyState title="글을 찾을 수 없습니다" description="삭제되었거나 주소가 잘못되었습니다.">
+    <EmptyState
+      :title="gone ? '삭제된 글입니다' : '글을 찾을 수 없습니다'"
+      :description="gone ? '작성자가 삭제한 글입니다.' : '삭제되었거나 주소가 잘못되었습니다.'"
+    >
       <template #action>
         <NuxtLink :to="`/b/${handle}`" class="tb-btn tb-btn-secondary tb-btn-sm">블로그로</NuxtLink>
       </template>
@@ -75,7 +98,7 @@
           {{ bookmarked ? '서재에 저장됨' : '서재에 저장' }}
         </button>
         <button class="tb-btn tb-btn-ghost tb-btn-sm" @click="share">공유</button>
-        <button v-if="isLoggedIn" class="tb-btn tb-btn-ghost tb-btn-sm" @click="showReport = true">
+        <button v-if="isLoggedIn" class="tb-btn tb-btn-ghost tb-btn-sm" @click="openReport('POST', post.id)">
           신고
         </button>
       </div>
@@ -165,6 +188,13 @@
             >
               삭제
             </button>
+            <button
+              v-if="isLoggedIn && comment.author_user_id !== user?.id"
+              class="tb-btn tb-btn-ghost tb-btn-sm"
+              @click="openReport('COMMENT', comment.id)"
+            >
+              신고
+            </button>
           </div>
           <p class="tb-comment-body">{{ comment.content_text }}</p>
         </li>
@@ -177,7 +207,7 @@
 <script setup lang="ts">
 import { formatCount, formatDate, readingMinutes, timeAgo } from '@treeblog/ui-kit'
 import type { Blog, BookmarkItem, CommentItem, PostDetail, ReactionSummary, SearchPostItem } from '~/types/api'
-import { api } from '~/utils/api'
+import { api, toApiError } from '~/utils/api'
 
 const reactionKinds = [
   { id: 'LIKE', label: '좋아요' },
@@ -199,6 +229,7 @@ const post = ref<PostDetail | null>(null)
 const blogTitle = ref('')
 const pending = ref(true)
 const failed = ref(false)
+const gone = ref(false)
 const reactions = ref<ReactionSummary>({ counts: {}, total: 0, mine: null })
 const reactionBusy = ref(false)
 const bookmarked = ref(false)
@@ -212,6 +243,17 @@ const showReport = ref(false)
 const reportReason = ref('SPAM')
 const reportDetail = ref('')
 const reportBusy = ref(false)
+const locked = ref(false)
+const password = ref('')
+const unlockBusy = ref(false)
+const unlockError = ref('')
+
+const lockKey = computed(() => `tb-post-pw:${handle.value}/${slug.value}`)
+
+function storedPassword(): string | undefined {
+  if (typeof sessionStorage === 'undefined') return undefined
+  return sessionStorage.getItem(lockKey.value) ?? undefined
+}
 
 useSeoMeta({
   title: () => (post.value ? `${post.value.title} | TreeBlog` : '글 | TreeBlog'),
@@ -220,13 +262,62 @@ useSeoMeta({
   ogImage: () => post.value?.cover_image_url || '/og-default.png'
 })
 
+// The API follows slug history with a 301, so a renamed post can render
+// under its old URL. The canonical link always points at the current slug.
+useHead(() => ({
+  link: post.value ? [{ rel: 'canonical', href: `/b/${handle.value}/${post.value.slug}` }] : []
+}))
+
+interface PostSeoMeta {
+  robots: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  json_ld: any[]
+}
+
+const seoMeta = ref<PostSeoMeta | null>(null)
+
+useHead(() => ({
+  meta:
+    seoMeta.value && seoMeta.value.robots.includes('noindex')
+      ? [{ name: 'robots', content: seoMeta.value.robots }]
+      : [],
+  script: (seoMeta.value?.json_ld || []).map((block) => ({
+    type: 'application/ld+json',
+    innerHTML: JSON.stringify(block)
+  }))
+}))
+
+async function unlockWithPassword(): Promise<void> {
+  if (!password.value || typeof sessionStorage === 'undefined') return
+  unlockBusy.value = true
+  sessionStorage.setItem(lockKey.value, password.value)
+  password.value = ''
+  unlockError.value = ''
+  locked.value = false
+  await load()
+}
+
 async function load(): Promise<void> {
   pending.value = true
   failed.value = false
   try {
+    const saved = storedPassword()
     post.value = await api<PostDetail>(`/api/v1/public/blogs/${handle.value}/posts/${slug.value}`, {
-      auth: isLoggedIn.value
+      auth: isLoggedIn.value,
+      query: saved ? { password: saved } : undefined
     })
+    locked.value = false
+    if (post.value.slug !== slug.value) {
+      await navigateTo(`/b/${handle.value}/${post.value.slug}`, { replace: true })
+    }
+    try {
+      seoMeta.value = await api<PostSeoMeta>(
+        `/api/v1/public/blogs/${handle.value}/posts/${post.value.slug}/seo`,
+        { auth: false }
+      )
+    } catch {
+      seoMeta.value = null
+    }
     const postId = post.value.id
     const settled = await Promise.allSettled([
       api<Blog>(`/api/v1/blogs/${handle.value}`, { auth: false }),
@@ -252,10 +343,24 @@ async function load(): Promise<void> {
         bookmarked.value = false
       }
     }
-  } catch {
-    failed.value = true
+  } catch (error) {
+    const apiError = toApiError(error)
+    if (apiError.code === 'POST_GONE') {
+      gone.value = true
+      failed.value = true
+    } else if (apiError.code === 'POST_PASSWORD_REQUIRED' || apiError.code === 'POST_PASSWORD_INVALID') {
+      locked.value = true
+      post.value = null
+      if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(lockKey.value)
+      if (apiError.code === 'POST_PASSWORD_INVALID') {
+        unlockError.value = '비밀번호가 올바르지 않습니다'
+      }
+    } else {
+      failed.value = true
+    }
   } finally {
     pending.value = false
+    unlockBusy.value = false
   }
 }
 
@@ -359,15 +464,22 @@ async function unlock(): Promise<void> {
   )
 }
 
+const reportTarget = ref<{ type: string; id: string } | null>(null)
+
+function openReport(type: string, id: string): void {
+  reportTarget.value = { type, id }
+  showReport.value = true
+}
+
 async function submitReport(): Promise<void> {
-  if (!post.value) return
+  if (!reportTarget.value) return
   reportBusy.value = true
   try {
     await api('/api/v1/reports/', {
       method: 'POST',
       body: {
-        target_type: 'POST',
-        target_id: post.value.id,
+        target_type: reportTarget.value.type,
+        target_id: reportTarget.value.id,
         reason_category: reportReason.value,
         description: reportDetail.value.trim()
       }

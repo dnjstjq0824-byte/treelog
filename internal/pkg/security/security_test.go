@@ -3,6 +3,7 @@ package security
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -21,6 +22,9 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 	if rec.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatal("missing or invalid X-Frame-Options")
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'none'") || !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Fatalf("missing or invalid Content-Security-Policy: %q", got)
 	}
 }
 

@@ -122,7 +122,12 @@ func TestMonetization_Flow(t *testing.T) {
 
 	server := fakeToss(t, order.ID, 15000)
 	defer server.Close()
-	toss.HTTPClient = server.Client()
+	// Point the service client at the fake server. The default BaseURL is
+	// the live Toss API, which this test must never call.
+	fake := tosspayments.New(tosspayments.Config{SecretKey: "test-secret", BaseURL: server.URL})
+	fake.HTTPClient = server.Client()
+	svc.toss = fake
+	_ = toss
 
 	paid, err := svc.ConfirmPayment(ctx, buyerID, ConfirmPaymentInput{
 		PaymentKey: "pay-" + uuid.NewString()[:8], OrderID: order.ID, Amount: 15000,

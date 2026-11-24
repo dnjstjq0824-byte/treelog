@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -95,19 +96,23 @@ type MediaVariant struct {
 }
 
 type Service struct {
-	pool        *pgxpool.Pool
-	s3          *s3.Client
-	s3BucketRaw string
-	s3BucketPub string
+	pool         *pgxpool.Pool
+	s3           *s3.Client
+	s3BucketRaw  string
+	s3BucketPub  string
+	hotlinkHosts map[string]bool
 }
 
 // StorageConfig wires object storage into the media service. An empty
 // access key leaves storage unconfigured; upload methods then fail with a
-// 501 fault instead of returning unusable URLs.
+// 501 fault instead of returning unusable URLs. HotlinkAllowHosts lists
+// extra referer hosts permitted to hotlink public media; the request host
+// itself is always allowed.
 type StorageConfig struct {
-	S3           s3.Config
-	BucketRaw    string
-	BucketPublic string
+	S3               s3.Config
+	BucketRaw        string
+	BucketPublic     string
+	HotlinkAllowHosts []string
 }
 
 func NewService(pool *pgxpool.Pool, storage StorageConfig) (*Service, error) {
@@ -115,9 +120,15 @@ func NewService(pool *pgxpool.Pool, storage StorageConfig) (*Service, error) {
 		return nil, errors.New("media service requires a database pool")
 	}
 	svc := &Service{
-		pool:        pool,
-		s3BucketRaw: storage.BucketRaw,
-		s3BucketPub: storage.BucketPublic,
+		pool:         pool,
+		s3BucketRaw:  storage.BucketRaw,
+		s3BucketPub:  storage.BucketPublic,
+		hotlinkHosts: make(map[string]bool),
+	}
+	for _, host := range storage.HotlinkAllowHosts {
+		if trimmed := strings.ToLower(strings.TrimSpace(host)); trimmed != "" {
+			svc.hotlinkHosts[trimmed] = true
+		}
 	}
 	if svc.s3BucketRaw == "" {
 		svc.s3BucketRaw = "treeblog-raw-private"
@@ -398,7 +409,7 @@ func (s *Service) CompleteUpload(ctx context.Context, blogID, sessionID, userID 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload_json, idempotency_key)
 		VALUES ('MEDIA', $1, 'media.process', $2, 'evt-media-process-' || $1)
-	`, asset.ID, processPayload); err != nil {
+	`, asset.ID, string(processPayload)); err != nil {
 		return nil, err
 	}
 
@@ -497,8 +508,10 @@ func decodeMediaCursor(cursor string) (time.Time, string, error) {
 }
 
 // PublicObject resolves a READY asset (or one of its variants) to the
-// storage bucket and key backing it, for presigned delivery.
-func (s *Service) PublicObject(ctx context.Context, assetID, variant string) (bucket, key, contentType string, err error) {
+// storage bucket and key backing it, for presigned delivery. An empty
+// format selects JPEG; WEBP selects the lossless twin when the pipeline
+// emitted one.
+func (s *Service) PublicObject(ctx context.Context, assetID, variant, format string) (bucket, key, contentType string, err error) {
 	if s.pool == nil {
 		return "", "", "", &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
 	}
@@ -517,13 +530,21 @@ func (s *Service) PublicObject(ctx context.Context, assetID, variant string) (bu
 		return "", "", "", &Fault{Status: http.StatusConflict, Code: "MEDIA_NOT_READY", Message: "Media asset is still processing"}
 	}
 	if variant != "" {
+		format = strings.ToUpper(strings.TrimSpace(format))
+		if format == "" {
+			format = "JPEG"
+		}
+		ext, contentType, ok := variantFormat(format)
+		if !ok {
+			return "", "", "", &Fault{Status: http.StatusBadRequest, Code: "INVALID_VARIANT_FORMAT", Message: "Format must be jpeg or webp"}
+		}
 		var exists bool
 		err = s.pool.QueryRow(ctx, `SELECT TRUE FROM media_variants
-			WHERE media_asset_id = $1 AND variant_name = $2`, assetID, strings.ToUpper(variant)).Scan(&exists)
+			WHERE media_asset_id = $1 AND variant_name = $2 AND format = $3`, assetID, strings.ToUpper(variant), format).Scan(&exists)
 		if err != nil || !exists {
 			return "", "", "", &Fault{Status: http.StatusNotFound, Code: "VARIANT_NOT_FOUND", Message: "Media variant not found"}
 		}
-		return s.s3BucketPub, fmt.Sprintf("variants/%s/%s.jpg", assetID, strings.ToLower(variant)), "image/jpeg", nil
+		return s.s3BucketPub, fmt.Sprintf("variants/%s/%s.%s", assetID, strings.ToLower(variant), ext), contentType, nil
 	}
 	var bucketOut, keyOut string
 	err = s.pool.QueryRow(ctx, `
@@ -536,6 +557,104 @@ func (s *Service) PublicObject(ctx context.Context, assetID, variant string) (bu
 		return "", "", "", &Fault{Status: http.StatusNotFound, Code: "MEDIA_OBJECT_NOT_FOUND", Message: "Media object not found"}
 	}
 	return bucketOut, keyOut, mimeType, nil
+}
+
+// variantFormat maps a requested variant format to its storage extension
+// and content type.
+func variantFormat(format string) (ext, contentType string, ok bool) {
+	switch strings.ToUpper(strings.TrimSpace(format)) {
+	case "", "JPEG", "JPG":
+		return "jpg", "image/jpeg", true
+	case "WEBP":
+		return "webp", "image/webp", true
+	default:
+		return "", "", false
+	}
+}
+
+// ListVariants returns every stored rendition of an asset so clients can
+// assemble <picture> and srcset markup without guessing URLs.
+func (s *Service) ListVariants(ctx context.Context, assetID string) ([]MediaVariant, error) {
+	if s.pool == nil {
+		return nil, &Fault{Status: http.StatusServiceUnavailable, Code: "SERVICE_UNAVAILABLE", Message: "Database is unavailable"}
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT TRUE FROM media_assets WHERE id = $1 AND status = 'READY'`, assetID).Scan(&exists); err != nil || !exists {
+		if errors.Is(err, pgx.ErrNoRows) || !exists {
+			return nil, &Fault{Status: http.StatusNotFound, Code: "MEDIA_NOT_FOUND", Message: "Media asset not found"}
+		}
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT variant_name, format, width, height, size_bytes, public_cdn_url
+		FROM media_variants WHERE media_asset_id = $1
+		ORDER BY width ASC, format ASC`, assetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	variants := make([]MediaVariant, 0)
+	for rows.Next() {
+		var v MediaVariant
+		if err := rows.Scan(&v.VariantName, &v.Format, &v.Width, &v.Height, &v.SizeBytes, &v.PublicCDNURL); err != nil {
+			return nil, err
+		}
+		variants = append(variants, v)
+	}
+	return variants, rows.Err()
+}
+
+// OriginalObject resolves the private original for a blog author, for
+// short-lived presigned download. Public traffic must use variants.
+func (s *Service) OriginalObject(ctx context.Context, blogID, assetID, userID string) (bucket, key, contentType string, err error) {
+	if err := s.CheckAuthorRole(ctx, blogID, userID); err != nil {
+		return "", "", "", err
+	}
+	if err := s.requireStorage(); err != nil {
+		return "", "", "", err
+	}
+	var mimeType string
+	var bucketOut, keyOut string
+	err = s.pool.QueryRow(ctx, `
+		SELECT a.mime_type, us.storage_bucket, us.storage_object_key
+		FROM media_assets a
+		JOIN upload_sessions us ON us.id = a.upload_session_id
+		WHERE a.id = $1 AND a.blog_id = $2
+	`, assetID, blogID).Scan(&mimeType, &bucketOut, &keyOut)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", "", &Fault{Status: http.StatusNotFound, Code: "MEDIA_OBJECT_NOT_FOUND", Message: "Media object not found"}
+		}
+		return "", "", "", err
+	}
+	return bucketOut, keyOut, mimeType, nil
+}
+
+// HotlinkAllowed reports whether a public media request may proceed. Empty
+// referers (privacy modes, native apps) always pass; otherwise the referer
+// host must match the request host or the configured allowlist. This is
+// abuse friction, not access control: presigned URLs stay short-lived.
+func (s *Service) HotlinkAllowed(referer, requestHost string) bool {
+	if strings.TrimSpace(referer) == "" {
+		return true
+	}
+	refererHost := referer
+	if parsed, err := url.Parse(referer); err == nil && parsed.Host != "" {
+		refererHost = parsed.Host
+	}
+	refererHost = strings.ToLower(strings.TrimSpace(refererHost))
+	if host, _, err := net.SplitHostPort(refererHost); err == nil {
+		refererHost = host
+	}
+	if host, _, err := net.SplitHostPort(strings.ToLower(strings.TrimSpace(requestHost))); err == nil {
+		requestHost = host
+	} else {
+		requestHost = strings.ToLower(strings.TrimSpace(requestHost))
+	}
+	if refererHost == requestHost {
+		return true
+	}
+	return s.hotlinkHosts[refererHost]
 }
 
 // PresignDelivery returns a short-lived download URL for a resolved object.

@@ -12,7 +12,10 @@ func SecurityHeadersMiddleware() func(http.Handler) http.Handler {
 			h.Set("X-XSS-Protection", "1; mode=block")
 			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-			
+		// The API serves JSON only, so the policy denies everything by
+		// default. Frontend apps set their own document policies.
+		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	
 			if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 				h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 			}

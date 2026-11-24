@@ -4,12 +4,25 @@ This repository is the application workspace for the supplied [TreeBlog blueprin
 
 ## Current state
 
-- Go API bootstrapping, standard JSON health/error envelopes, configuration, graceful shutdown, and module boundaries are implemented.
-- The first two PostgreSQL migrations are available in [`migrations/`](./migrations/), with a migration runner and a CI integration test.
-- Nuxt user web, Vue blog console, Vue admin console, and shared TypeScript package workspaces build and typecheck. Their pages are scaffolds, not completed product features.
-- Docker Compose describes local PostgreSQL, Redis, OpenSearch, MinIO, Mailpit, migration, and API services. It has not been run on this machine because Docker is unavailable.
+Measured 2026-11-24. Details live in [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md),
+[docs/BLUEPRINT_ERRATA.md](./docs/BLUEPRINT_ERRATA.md), and [docs/COMMERCIAL_GAP_ANALYSIS.md](./docs/COMMERCIAL_GAP_ANALYSIS.md).
 
-See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for work-order status and known verification gaps.
+- Go API: 16 domain modules with 207 handler methods, migrations `0001`~`0013`
+  (78 `CREATE TABLE` statements), transactional outbox, Asynq worker, and 63 test files.
+  `go vet ./...` is clean and `go test ./...` passes in all 28 packages,
+  including DB-backed integration tests against a disposable PostgreSQL container.
+- OpenAPI contract: 128 paths / 142 operations in `04_API/openapi.yaml`.
+  `packages/api-client` generates typed clients from it with a CI drift gate;
+  frontends still use hand-written clients pending migration.
+- Frontends build and typecheck: Nuxt user web (19 pages), Vue blog console
+  (15 feature routes), Vue admin console (7 feature routes). They are wired
+  beyond scaffolds but still partial against the 46-screen inventory. The shared
+  `editor-core` package now ships AST types, document validation, and text
+  helpers with tests, and the console editor adds table blocks, pre-save
+  validation, word counts, and IndexedDB offline drafts.
+- Docker Compose describes local PostgreSQL, Redis, OpenSearch, MinIO, Mailpit,
+  migration, and API services. Full Compose execution, E2E tests, and the
+  independent audit are still pending, so no module is marked `VERIFIED`.
 
 ## Local development
 

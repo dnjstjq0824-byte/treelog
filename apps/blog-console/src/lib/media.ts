@@ -50,6 +50,36 @@ export async function uploadImage(blogId: string, file: File): Promise<MediaAsse
   )
 }
 
-export function publicMediaURL(assetId: string): string {
-  return `${apiBase()}/api/v1/public/media/${assetId}`
+export function publicMediaURL(assetId: string, variant?: string, format?: string): string {
+  const params = new URLSearchParams()
+  if (variant) params.set('variant', variant)
+  if (format) params.set('format', format)
+  const query = params.toString()
+  return `${apiBase()}/api/v1/public/media/${assetId}${query ? `?${query}` : ''}`
+}
+
+export interface MediaVariantInfo {
+  variant_name: string
+  format: string
+  width: number
+  height: number
+  size_bytes: number
+  public_cdn_url: string
+}
+
+// buildSrcset renders width-described srcset entries from the variants list
+// endpoint, preferring WebP twins where the pipeline emitted them.
+export function buildSrcset(assetId: string, variants: MediaVariantInfo[]): string {
+  const byWidth = new Map<number, MediaVariantInfo>()
+  for (const variant of variants) {
+    if (variant.variant_name === 'THUMB_400') continue
+    const current = byWidth.get(variant.width)
+    if (!current || (variant.format === 'WEBP' && current.format !== 'WEBP')) {
+      byWidth.set(variant.width, variant)
+    }
+  }
+  return [...byWidth.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([width, variant]) => `${publicMediaURL(assetId, variant.variant_name, variant.format.toLowerCase())} ${width}w`)
+    .join(', ')
 }

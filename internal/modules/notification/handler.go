@@ -1,9 +1,12 @@
 package notification
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -35,7 +38,72 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/unread-count", h.handleUnreadCount)
 		r.Post("/{id}/read", h.handleMarkRead)
 		r.Post("/read-all", h.handleMarkAllRead)
+		r.Get("/stream", h.handleStream)
 	})
+}
+
+// StreamTokenMiddleware copies the stream endpoint's access_token query
+// parameter into the Authorization header so the standard authentication
+// middleware can verify it. Native EventSource cannot set request headers,
+// so the short-lived access token travels in the URL on this endpoint only.
+// It must mount before identity.AuthenticateMiddleware.
+func StreamTokenMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/me/notifications/stream" && r.Header.Get("Authorization") == "" {
+			if token := r.URL.Query().Get("access_token"); token != "" {
+				r.Header.Set("Authorization", "Bearer "+token)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// heartbeatInterval keeps intermediaries from closing idle streams.
+const heartbeatInterval = 25 * time.Second
+
+// handleStream serves the live notification feed over Server-Sent Events.
+// It emits a ready event with the current unread count, then one event per
+// new notification until the client disconnects.
+func (h *Handler) handleStream(w http.ResponseWriter, r *http.Request) {
+	user, _ := identity.UserFromContext(r.Context())
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		h.handleError(w, r, &Fault{Status: http.StatusInternalServerError, Code: "STREAM_UNSUPPORTED", Message: "Streaming is not supported"})
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	unread, _ := h.service.UnreadCount(r.Context(), user.UserID)
+	fmt.Fprintf(w, "event: ready\ndata: {\"unread_count\":%d}\n\n", unread)
+	flusher.Flush()
+
+	ch := make(chan Notification, streamBuffer)
+	h.service.Hub().Subscribe(user.UserID, ch)
+	defer h.service.Hub().Unsubscribe(user.UserID, ch)
+
+	heartbeat := time.NewTicker(heartbeatInterval)
+	defer heartbeat.Stop()
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartbeat.C:
+			fmt.Fprint(w, ": heartbeat\n\n")
+			flusher.Flush()
+		case item := <-ch:
+			encoded, err := json.Marshal(item)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "event: notification\ndata: %s\n\n", encoded)
+			flusher.Flush()
+		}
+	}
 }
 
 func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error) {

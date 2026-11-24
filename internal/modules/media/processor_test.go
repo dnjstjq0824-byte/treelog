@@ -7,7 +7,51 @@ import (
 	"image/jpeg"
 	"image/png"
 	"testing"
+
+	"golang.org/x/image/webp"
 )
+
+// TestVariantWEBPTwin pins the G-12 emission rule: the lossless WebP twin
+// ships only when it undercuts its JPEG sibling, and every emitted twin
+// decodes with the standard library. Flat graphics win; noisy photos lose.
+func TestVariantWEBPTwin(t *testing.T) {
+	flat := image.NewRGBA(image.Rect(0, 0, 640, 480))
+	for y := 0; y < 480; y++ {
+		for x := 0; x < 640; x++ {
+			c := color.RGBA{255, 255, 255, 255}
+			if (x/40+y/40)%2 == 0 {
+				c = color.RGBA{30, 60, 200, 255}
+			}
+			flat.Set(x, y, c)
+		}
+	}
+	encoded := encodeVariant(flat)
+	if encoded == nil || len(encoded.jpeg) == 0 || len(encoded.webp) == 0 {
+		t.Fatal("expected jpeg + webp twins for flat graphics")
+	}
+	if len(encoded.webp) >= len(encoded.jpeg) {
+		t.Fatalf("expected webp (%d) to undercut jpeg (%d) on flat graphics", len(encoded.webp), len(encoded.jpeg))
+	}
+	if _, err := webp.Decode(bytes.NewReader(encoded.webp)); err != nil {
+		t.Fatalf("webp twin undecodable: %v", err)
+	}
+
+	seed := uint32(12345)
+	noisy := image.NewRGBA(image.Rect(0, 0, 320, 240))
+	for y := 0; y < 240; y++ {
+		for x := 0; x < 320; x++ {
+			seed = seed*1103515245 + 12345
+			noisy.Set(x, y, color.RGBA{uint8(seed >> 16), uint8(seed >> 8), uint8(seed), 255})
+		}
+	}
+	photo := encodeVariant(noisy)
+	if photo == nil || len(photo.jpeg) == 0 {
+		t.Fatal("expected jpeg for noisy photo")
+	}
+	if len(photo.webp) > 0 && len(photo.webp) < len(photo.jpeg) {
+		t.Fatalf("unexpected webp win on noise: webp=%d jpeg=%d", len(photo.webp), len(photo.jpeg))
+	}
+}
 
 func testImageBytes(t *testing.T, format string, width, height int) []byte {
 	t.Helper()

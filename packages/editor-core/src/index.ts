@@ -1,1 +1,3 @@
-export type EditorDocument = { type: 'doc'; content: unknown[] }
+export * from './document'
+export * from './validate'
+export * from './text'
